@@ -1,6 +1,6 @@
 import { render } from 'preact';
 import { analyze, isoWeekKey, type Analysis, type State, type Todo } from '../engine';
-import { setWeekCapacity, setWeekly, type Edit } from '../store/edits';
+import { setWeekCapacity, setWeekly, updatePlan, type Edit } from '../store/edits';
 import { describeChanges } from './changes';
 import { Legend, StatusBar, TopBar, TreeFoot, TreeHead, WeekEdit } from './chrome';
 import { tooltipLines } from './explain';
@@ -14,9 +14,11 @@ import { readPalette, type Palette } from './gantt/palette';
 import { chartSpan, clampPpd, makeScale, zoomAround, type TimeScale } from './gantt/scale';
 import { buildScene, projectRoots, type Bar, type Scene } from './gantt/scene';
 import { Hierarchy } from './hierarchy';
+import { HistoryDialog, PlanDialogBox } from './plan-dialog';
+import { openPlan, planTarget, setPlanDeep, togglePlanRow } from './plan-ui';
 import { Rail } from './rail/rail';
 import { buildRows, HEAD, LOADH, ROW, rowView, type Row } from './rows';
-import { defaultUi, escape, goUp, pruneUi, setFocus, toggleCollapsed, toggleHidden, type UiState } from './ui-state';
+import { cleanForSharing, defaultUi, defaultView, escape, goUp, pruneUi, setFocus, setLayer, setShow, toggleCollapsed, toggleHidden, type UiState } from './ui-state';
 
 /** The slice of TaskmasterStore the view reads. */
 export interface ViewStore {
@@ -89,6 +91,7 @@ export class GanttApp {
   private status: HTMLElement;
   private tip: HTMLElement;
   private overlay: HTMLElement;
+  private dialog: HTMLElement;
   private hierarchy: Hierarchy;
 
   constructor(
@@ -118,6 +121,7 @@ export class GanttApp {
     this.rail = div(main, 'tm-rail');
     this.status = div(this.root, 'tm-status');
     this.tip = div(this.root, 'tm-tip');
+    this.dialog = div(this.root, 'tm-dialog-host');
 
     this.pal = readPalette(this.root);
     this.a = this.compute();
@@ -135,7 +139,7 @@ export class GanttApp {
     this.unsubscribe();
     this.resize.disconnect();
     cancelAnimationFrame(this.raf);
-    for (const host of [this.top, this.legend, this.treeHead, this.treeFoot, this.rail, this.status, this.overlay]) render(null, host);
+    for (const host of [this.top, this.legend, this.treeHead, this.treeFoot, this.rail, this.status, this.overlay, this.dialog]) render(null, host);
     this.root.remove();
   }
 
@@ -160,6 +164,11 @@ export class GanttApp {
   refreshTheme() {
     this.pal = readPalette(this.root);
     this.paint();
+  }
+
+  /** Links on the chart, for checks that a canvas cannot answer. */
+  get links() {
+    return this.scene.links;
   }
 
   /** Screen geometry of an item's bar, or null when it has none on the chart. The forecast bar with `fc`. */
@@ -273,7 +282,8 @@ export class GanttApp {
     const prev = this.ui;
     this.ui = next;
     if (next.focus !== prev.focus) this.scroller.scrollTop = 0;
-    if (next.focus !== prev.focus || next.collapsed !== prev.collapsed || next.hidden !== prev.hidden) return this.rebuild();
+    const rebuilt = next.collapsed !== prev.collapsed || next.hidden !== prev.hidden || next.show !== prev.show || next.plan !== prev.plan || next.fc !== prev.fc;
+    if (next.focus !== prev.focus || rebuilt) return this.rebuild();
     this.hierarchy.setSelected(next.sel);
     this.renderChrome();
     this.paint();
@@ -334,6 +344,7 @@ export class GanttApp {
   private renderChrome() {
     const { st, a, ui, roots } = this;
     const { show } = ui;
+    const target = planTarget(st, a, ui);
     const flag = (cls: string, on: boolean) => this.root.classList.toggle(cls, on);
     flag('tm-no-rail', !show.rail);
     flag('tm-no-cols', !show.cols);
@@ -351,6 +362,20 @@ export class GanttApp {
         onFocus={id => this.focusOn(id)}
         onZoom={p => this.setZoom(p, this.chart.clientWidth / 2)}
         onAxis={axis => this.setUi({ ...this.ui, axis })}
+        onLayer={(layer, level) => this.setUi(setLayer(this.ui, layer, level))}
+        onView={{
+          toggle: () => this.setUi({ ...this.ui, viewOpen: !this.ui.viewOpen }),
+          set: (key, on) => this.setUi(setShow(this.ui, key, on)),
+          clean: () => this.setUi(cleanForSharing(this.ui)),
+          reset: () => {
+            this.setUi(defaultView(this.ui));
+            // A wider chart clamps the scroll, and narrowing it does not give that back.
+            this.centreToday();
+          },
+        }}
+        planName={target.name}
+        canPlan={target.rows.length > 0}
+        onPlan={() => this.openPlanDialog()}
         undoLabel={this.store.undoLabel}
         onUndo={() => this.undo()}
       />,
@@ -380,12 +405,48 @@ export class GanttApp {
           focus: id => this.focusOn(id),
           openNote: path => this.view.openNote(path),
           apply: edit => void this.store.apply(edit),
+          openPlan: () => this.openPlanDialog(),
+          openHistory: () => this.setUi({ ...this.ui, historyOpen: true }),
         }}
       />,
       this.rail,
     );
     this.renderStatus();
     this.renderWeekEdit();
+    this.renderDialog();
+  }
+
+  private openPlanDialog() {
+    this.setUi(openPlan(this.ui, this.st, this.a));
+  }
+
+  private applyPlan() {
+    const dlg = this.ui.planDlg;
+    if (!dlg) return;
+    this.setUi({ ...this.ui, planDlg: null });
+    if (!this.store.apply(updatePlan(dlg.rows.filter(id => dlg.ids.has(id)), dlg.deep))) this.say('Nothing to update: those rows have no dates');
+  }
+
+  private renderDialog() {
+    const { st, a, ui } = this;
+    const close = () => this.setUi({ ...this.ui, planDlg: null, historyOpen: false });
+    render(
+      ui.planDlg ? (
+        <PlanDialogBox
+          st={st}
+          a={a}
+          dlg={ui.planDlg}
+          onToggle={id => this.setUi(togglePlanRow(this.ui, id))}
+          onDeep={deep => this.setUi(setPlanDeep(this.ui, deep))}
+          onApply={() => this.applyPlan()}
+          onCancel={close}
+          onHistory={() => this.setUi({ ...this.ui, planDlg: null, historyOpen: true })}
+        />
+      ) : ui.historyOpen ? (
+        <HistoryDialog st={st} onClose={close} />
+      ) : null,
+      this.dialog,
+    );
   }
 
   private renderWeekEdit() {
@@ -545,6 +606,13 @@ export class GanttApp {
     const { signal } = this.stop;
     const { scroller, tree } = this;
     this.hierarchy.listen(signal);
+    this.root.addEventListener(
+      'pointerdown',
+      e => {
+        if (this.ui.viewOpen && !(e.target as HTMLElement).closest('.tm-view-wrap')) this.setUi({ ...this.ui, viewOpen: false });
+      },
+      { capture: true, signal },
+    );
     scroller.addEventListener('scroll', () => this.onScroll(), { passive: true, signal });
     tree.addEventListener(
       'wheel',

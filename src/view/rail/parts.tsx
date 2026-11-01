@@ -10,6 +10,9 @@ export interface RailActions {
   focus(id: string): void;
   openNote(path: string): void;
   apply(edit: Edit): void;
+  /** Update plan, for the same target as the top bar's button. */
+  openPlan(): void;
+  openHistory(): void;
 }
 
 export interface PanelProps {

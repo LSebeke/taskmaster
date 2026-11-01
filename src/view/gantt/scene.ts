@@ -183,15 +183,20 @@ function buildLinks(st: State, a: Analysis, rows: Row[], ui: UiState): Link[] {
   rows.forEach((r, i) => {
     if (!r.section) pos.set(r.id, i);
   });
-  const lane = ui.fc === 'solid' || (ui.fc === 'off' && ui.plan === 'solid') ? LANE_SOLID : LANE_GHOST;
+  const { solid, ghost } = layers(ui);
+  // The layer links attach to: the forecast, or the plan with no forecast on show.
+  const layer = solid === 'fc' || ghost === 'fc' ? 'fc' : solid ?? ghost;
+  if (!layer) return [];
+  const lane = solid === layer ? LANE_SOLID : LANE_GHOST;
   const isExt = (id: string) => st.items[id].kind === 'ext';
-  const dates = (id: string) => (ui.fc !== 'off' || isExt(id) ? a.by[id] : st.plan[id]);
+  const unseen = (id: string) => !ui.show.milestones && st.items[id].kind === 'ms';
+  const dates = (id: string) => (layer === 'fc' || isExt(id) ? a.by[id] : st.plan[id]);
   const yOf = (id: string) => (isExt(id) ? LANE_EXT : lane);
   const links: Link[] = [];
   const add = (from: string, to: string, tone: Link['tone'], dashed: boolean, width: number) => {
     const i0 = pos.get(from);
     const i1 = pos.get(to);
-    if (i0 == null || i1 == null) return;
+    if (i0 == null || i1 == null || unseen(from) || unseen(to)) return;
     const end = dates(from)?.end;
     const start = dates(to)?.start;
     if (end == null || start == null) return;
@@ -212,11 +217,8 @@ function buildLinks(st: State, a: Analysis, rows: Row[], ui: UiState): Link[] {
       }
     }
   }
-  if (ui.show.crit) {
-    for (const l of a.links) {
-      if (l.kind === 'dep') add(l.a, l.b, 'crit', false, 1.5);
-      else if (ui.show.cap) add(l.a, l.b, 'crit', true, 1.5);
-    }
+  for (const l of a.links) {
+    if (l.kind === 'dep' ? ui.show.crit : ui.show.cap) add(l.a, l.b, 'crit', l.kind === 'cap', 1.5);
   }
   return links;
 }

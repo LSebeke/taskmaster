@@ -2,7 +2,8 @@ import { isoWeekKey, type Analysis, type State } from '../engine';
 import { NumField } from './rail/fields';
 import { hiddenList } from './rows';
 import { EYE, EYE_OFF } from './hierarchy';
-import { ZOOMS, layers, type Axis, type UiState } from './ui-state';
+import { VIEW_TOGGLES } from './view-menu-items';
+import { ZOOMS, layers, type Axis, type LayerLevel, type LayerName, type Show, type UiState } from './ui-state';
 
 export interface TopBarProps {
   st: State;
@@ -11,11 +12,57 @@ export interface TopBarProps {
   onFocus(id: string | null): void;
   onZoom(ppd: number): void;
   onAxis(axis: Axis): void;
+  onLayer(layer: LayerName, level: LayerLevel): void;
+  onView: ViewMenuActions & { toggle(): void };
+  planName: string;
+  canPlan: boolean;
+  onPlan(): void;
   undoLabel: string | null;
   onUndo(): void;
 }
 
-export function TopBar({ st, ui, onUp, onFocus, onZoom, onAxis, undoLabel, onUndo }: TopBarProps) {
+const LEVELS: { level: LayerLevel; label: string }[] = [
+  { level: 'off', label: 'Off' },
+  { level: 'ghost', label: 'Ghost' },
+  { level: 'solid', label: 'Solid' },
+];
+
+function LayerSeg({ name, level, onPick }: { name: string; level: LayerLevel; onPick(level: LayerLevel): void }) {
+  return (
+    <span class="tm-seg" role="group" aria-label={`${name} visibility`}>
+      <span>{name}</span>
+      {LEVELS.map(l => (
+        <button class={l.level === level ? 'tm-on' : ''} onClick={() => onPick(l.level)}>
+          {l.label}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+export interface ViewMenuActions {
+  set(key: keyof Show, on: boolean): void;
+  clean(): void;
+  reset(): void;
+}
+
+function ViewMenu({ show, on }: { show: Show; on: ViewMenuActions }) {
+  return (
+    <div class="tm-view-menu">
+      <div class="tm-actions">
+        <button onClick={on.clean}>Clean for sharing</button>
+        <button onClick={on.reset}>Default</button>
+      </div>
+      {VIEW_TOGGLES.map(t => (
+        <label key={t.key}>
+          <input type="checkbox" checked={show[t.key]} onChange={e => on.set(t.key, e.currentTarget.checked)} /> {t.label}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+export function TopBar({ st, ui, onUp, onFocus, onZoom, onAxis, onLayer, onView, planName, canPlan, onPlan, undoLabel, onUndo }: TopBarProps) {
   const path: string[] = [];
   for (let i = ui.focus; i; i = st.items[i].parent) path.unshift(i);
   return (
@@ -33,6 +80,8 @@ export function TopBar({ st, ui, onUp, onFocus, onZoom, onAxis, undoLabel, onUnd
         ))}
       </div>
       <div class="tm-spacer" />
+      <LayerSeg name="Plan" level={ui.plan} onPick={level => onLayer('plan', level)} />
+      <LayerSeg name="Forecast" level={ui.fc} onPick={level => onLayer('fc', level)} />
       <span class="tm-seg">
         <span>Zoom</span>
         {ZOOMS.map(z => (
@@ -50,6 +99,15 @@ export function TopBar({ st, ui, onUp, onFocus, onZoom, onAxis, undoLabel, onUnd
           CW
         </button>
       </span>
+      <span class="tm-view-wrap">
+        <button class="tm-view-btn" aria-expanded={ui.viewOpen} onClick={onView.toggle}>
+          View ▾
+        </button>
+        {ui.viewOpen && <ViewMenu show={ui.show} on={onView} />}
+      </span>
+      <button class="tm-plan-btn" disabled={!canPlan} title={`Update plan: ${planName}`} onClick={onPlan}>
+        Update plan: {planName}
+      </button>
       <button class="tm-undo" disabled={!undoLabel} title={undoLabel ? `Undo: ${undoLabel} (Ctrl+Z)` : 'Nothing to undo'} onClick={onUndo}>
         Undo
       </button>
@@ -90,6 +148,12 @@ export function Legend({ st, a, ui }: { st: State; a: Analysis; ui: UiState }) {
         <span>
           {swatch('var(--tm-crit)', 18, 2, 0)}
           critical chain
+        </span>
+      )}
+      {show.cap && (
+        <span>
+          <i class="tm-swatch-cap" />
+          waiting for capacity
         </span>
       )}
       {show.today && (

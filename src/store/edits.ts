@@ -1,4 +1,4 @@
-import { analyze, depError, editLog, iso, kids, logHours as engineLog, setLeft, setTotal as engineTotal, type Analysis, type Day, type Item, type Scope, type State } from '../engine';
+import { analyze, depError, editLog, iso, kids, logHours as engineLog, setLeft, setTotal as engineTotal, updatePlan as enginePlan, type Analysis, type Day, type Item, type Scope, type State } from '../engine';
 
 /**
  * One user edit. Changes the state it is given, a copy, and returns the label for the status bar and
@@ -144,6 +144,14 @@ export const setWeekCapacity =
     else cap[week] = hours;
     st.settings.weekCap = cap;
     return hours == null ? 'Week override cleared' : `Week override ${num(hours)}h`;
+  };
+
+/** The chosen rows take the forecast as their plan. `deep` takes their sub-levels too. */
+export const updatePlan =
+  (ids: string[], deep: boolean): Edit =>
+  st => {
+    const n = enginePlan(st, analyze(st), ids.filter(id => st.items[id]), deep);
+    return n ? `Plan updated on ${n} item${n > 1 ? 's' : ''}` : undefined;
   };
 
 /** Logged but not started. Cheap, so `analyze` only runs when something qualifies. */

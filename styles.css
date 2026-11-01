@@ -10,7 +10,7 @@
 .theme-light .tm-root{--tm-c1:#2a78d6;--tm-c2:#eb6834;--tm-c3:#1baf7a;--tm-c4:#eda100;--tm-c5:#e87ba4;--tm-c6:#008300;--tm-c7:#6250d6;--tm-c8:#e34948;--tm-good-text:#006300}
 .theme-dark .tm-root{--tm-c1:#3987e5;--tm-c2:#d95926;--tm-c3:#199e70;--tm-c4:#c98500;--tm-c5:#d55181;--tm-c6:#008300;--tm-c7:#9085e9;--tm-c8:#e66767;--tm-good-text:#0ca30c}
 
-.tm-root{height:100%;display:flex;flex-direction:column;overflow:hidden;font-size:13px;line-height:1.4;background:var(--tm-page);color:var(--tm-ink)}
+.tm-root{position:relative;height:100%;display:flex;flex-direction:column;overflow:hidden;font-size:13px;line-height:1.4;background:var(--tm-page);color:var(--tm-ink)}
 .tm-root *{box-sizing:border-box}
 .tm-root button{height:auto;box-shadow:none;font:inherit;color:inherit;background:var(--tm-surface);border:1px solid var(--tm-ring);border-radius:6px;padding:3px 9px;cursor:pointer}
 .tm-root button:hover{background:var(--tm-wash)}
@@ -33,6 +33,7 @@
 .tm-legend{display:flex;gap:14px;padding:4px 12px;font-size:11px;color:var(--tm-ink2);border-bottom:1px solid var(--tm-ring);background:var(--tm-surface);flex-wrap:wrap;align-items:center}
 .tm-legend i{display:inline-block;vertical-align:middle;margin-right:4px}
 .tm-legend .tm-swatch-fill{width:26px;height:10px;border-radius:3px;background:linear-gradient(90deg,var(--tm-c1) 60%,color-mix(in srgb,var(--tm-c1) 32%,var(--tm-surface)) 60%)}
+.tm-legend .tm-swatch-cap{width:18px;height:0;border-top:2px dashed var(--tm-crit)}
 .tm-hint{color:var(--tm-muted)}
 .tm-no-legend .tm-legend{display:none}
 
@@ -59,8 +60,9 @@
 .tm-root button.tm-eye{width:26px;height:100%;flex:none;border:0;background:none;padding:0;color:var(--tm-ink2);display:flex;align-items:center;justify-content:center;border-radius:0}
 .tm-root button.tm-eye:hover{background:var(--tm-wash);color:var(--tm-ink)}
 .tm-root button.tm-hidden-btn{width:auto;min-width:26px;height:26px;padding:0 5px;gap:4px;font-size:11px}
-.tm-no-eyes .tm-eye{display:none}
+.tm-root.tm-no-eyes button.tm-eye{display:none}
 .tm-no-eyes .tm-row{padding-left:8px}
+.tm-no-eyes .tm-tree-head{padding-left:8px}
 .tm-root button.tm-col{width:28px;height:24px;flex:none;padding:0;font-size:16px;line-height:1;color:var(--tm-ink);text-align:center}
 .tm-nocol{width:28px;flex:none;text-align:center;color:var(--tm-muted)}
 .tm-root button.tm-fb{flex:none;padding:0 6px;height:22px;display:none;font-size:12px}
@@ -136,3 +138,19 @@
 .tm-overlay{position:absolute;left:0;right:0;bottom:0;height:0;pointer-events:none}
 .tm-week-edit{position:absolute;bottom:66px;display:flex;gap:5px;align-items:center;padding:4px 7px;font-size:12px;background:var(--tm-surface);border:1px solid var(--tm-ring);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);pointer-events:auto;z-index:3}
 .tm-root .tm-week-edit input.tm-num-in{width:56px}
+
+.tm-root input[type=checkbox]{width:14px;height:14px;margin:0 4px 0 0;padding:0;vertical-align:-2px;accent-color:var(--tm-accent)}
+.tm-root button.tm-plan-btn{width:220px;font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;text-align:left}
+.tm-root button.tm-primary{background:var(--tm-accent);color:var(--tm-on-accent);border-color:var(--tm-accent);font-weight:600}
+.tm-root button.tm-primary:hover{background:var(--tm-accent)}
+.tm-view-wrap{position:relative}
+.tm-view-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:20;width:236px;max-height:calc(100vh - 90px);overflow:auto;padding:8px 12px;background:var(--tm-surface);border:1px solid var(--tm-ring);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.18)}
+.tm-view-menu .tm-actions{margin:0 0 6px}
+.tm-view-menu label{display:block;padding:2px 0}
+.tm-backdrop{position:absolute;inset:0;z-index:25;display:flex;justify-content:center;align-items:flex-start;padding-top:72px;background:rgba(0,0,0,.28)}
+.tm-dialog{width:460px;max-height:calc(100% - 110px);display:flex;flex-direction:column;padding:14px 16px;background:var(--tm-surface);border:1px solid var(--tm-ring);border-radius:10px;box-shadow:0 10px 32px rgba(0,0,0,.28)}
+.tm-dialog h2{font-size:15px;font-weight:600;margin:0 0 4px}
+.tm-dlg-rows{min-height:0;overflow:auto;margin:10px 0}
+.tm-dlg-deep{display:block;margin-bottom:6px}
+.tm-root button.tm-dlg-entry{display:block;width:100%;margin:2px 0;border:0;background:none;text-align:left;font-weight:600}
+.tm-dlg-sub{padding-left:18px}

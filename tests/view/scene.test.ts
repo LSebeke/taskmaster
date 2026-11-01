@@ -95,6 +95,37 @@ describe('scene', () => {
     expect(scene.links[0]).toMatchObject({ d0: D('2026-11-04'), d1: D('2026-11-10'), y0: 12 });
   });
 
+  it('attaches links to plan bars when a hidden ghost leaves no forecast on show', () => {
+    const st = state({ a: task('a', 12), b: task('b', 12, { deps: ['a'] }) }, [['a'], ['b']]);
+    planned(st, 'a', '2026-11-02', '2026-11-03');
+    planned(st, 'b', '2026-11-10', '2026-11-12');
+    const ui = defaultUi();
+    const { scene } = sceneOf(st, { ...ui, show: { ...ui.show, ghost: false } });
+    expect(scene.rows[0].bars.map(b => b.role)).toEqual(['solid']);
+    expect(scene.links[0]).toMatchObject({ d0: D('2026-11-04'), d1: D('2026-11-10'), y0: 12 });
+  });
+
+  it('draws no links when no bar is on show', () => {
+    const st = state({ a: task('a', 12), b: task('b', 12, { deps: ['a'] }) }, [['a'], ['b']]);
+    planned(st, 'a', '2026-11-02', '2026-11-03');
+    planned(st, 'b', '2026-11-10', '2026-11-12');
+    const ui = defaultUi();
+    expect(sceneOf(st, { ...ui, plan: 'ghost', fc: 'off', show: { ...ui.show, ghost: false } }).scene.links).toEqual([]);
+  });
+
+  it('skips a link to a planless bar when Forecast is off', () => {
+    const st = state({ a: task('a', 12), b: task('b', 12, { deps: ['a'] }) }, [['a'], ['b']]);
+    planned(st, 'a', '2026-11-02', '2026-11-03');
+    expect(sceneOf(st, { ...defaultUi(), fc: 'off' }).scene.links).toEqual([]);
+  });
+
+  it('leaves no link hanging on a hidden milestone', () => {
+    const st = state({ p: task('p', 0), a: task('a', 12, { parent: 'p' }), m: { title: 'm', parent: 'p', kind: 'ms', deps: ['a'] } }, [['a']]);
+    const ui = defaultUi();
+    expect(sceneOf(st).scene.links.length).toBeGreaterThan(0);
+    expect(sceneOf(st, { ...ui, show: { ...ui.show, milestones: false } }).scene.links).toEqual([]);
+  });
+
   it('turns a link red when a pinned start beats its predecessor', () => {
     const st = state({ a: task('a', 60), b: task('b', 6, { deps: ['a'], pinS: D('2026-11-03') }) }, [['a'], ['b']]);
     expect(sceneOf(st).scene.links.filter(l => l.a === 'a').every(l => l.tone === 'crit')).toBe(true);
@@ -115,6 +146,14 @@ describe('scene', () => {
     const ui = defaultUi();
     expect(sceneOf(st).scene.links.filter(l => l.dashed)).toEqual([]);
     expect(sceneOf(st, { ...ui, show: { ...ui.show, cap: true } }).scene.links.filter(l => l.dashed).length).toBe(1);
+  });
+});
+
+describe('capacity links', () => {
+  it('have their own switch, whatever the critical chain does', () => {
+    const st = state({ a: task('a', 12), b: task('b', 12) }, [['a'], ['b']]);
+    const ui = defaultUi();
+    expect(sceneOf(st, { ...ui, show: { ...ui.show, crit: false, cap: true } }).scene.links.filter(l => l.dashed).length).toBe(1);
   });
 });
 
