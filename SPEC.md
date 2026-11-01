@@ -360,14 +360,14 @@ Prototype scenarios (Scenarios tab) double as manual acceptance tests.
 
 Built into the prototype as defaults, cheap to change before implementation.
 
-1. **Update plan reaches downward by default**, unless "Also update their sub-levels" is unticked.
-2. **A pinned start does not raise priority.** A low-priority task pinned to start Monday can sit idle if higher levels take all capacity. It shows as blocked by capacity.
-3. **End-pinned tasks obey their level.** Only both-pinned tasks reserve capacity. An end-pinned task in too low a level gets a conflict, not a boost.
-4. **Default equal burn means parallel work.** Tasks in one level split the week evenly, so forecasts assume heavy context switching until you separate them.
-5. **Budget not broken into tasks uses no capacity.** The rail warns instead. The alternative is scheduling it as a placeholder task.
-6. **`state.json` under Obsidian Sync** requires syncing other file types. Git and Syncthing are unaffected.
-7. **The eye toggle** is read as display-only hiding, separate from collapsing.
-8. **An item with hours and no children is scheduled, even a project.** A project given 60h and nothing inside it competes for time as one 60h block.
-9. **Deleting the last child schedules the budget.** Remove every task from a 90h project and it becomes 90h of work.
-10. **External items keep no plan.** The original date of a maintenance window is not recorded, only its effect on dependents.
-11. **External items only block what is linked.** Nothing warns about a task that uses the machine but is not linked to it.
+1. **Update plan reaches downward by default**, unless "Also update their sub-levels" is unticked. -> Confirmed.
+2. **A pinned start does not raise priority.** A low-priority task pinned to start Monday can sit idle if higher levels take all capacity. It shows as blocked by capacity. -> Confirmed.
+3. **End-pinned tasks obey their level.** Only both-pinned tasks reserve capacity. An end-pinned task in too low a level gets a conflict, not a boost. -> Confirmed.
+4. **Default equal burn means parallel work.** Tasks in one level split the week evenly, so forecasts assume heavy context switching until you separate them. -> Confirmed.
+5. **Budget not broken into tasks uses no capacity.** The rail warns instead. The alternative is scheduling it as a placeholder task. -> Confirmed.
+6. **`state.json` under Obsidian Sync** requires syncing other file types. Git and Syncthing are unaffected. -> Confirmed.
+7. **The eye toggle** is read as display-only hiding, separate from collapsing. -> Confirmed.
+8. **An item with hours and no children is scheduled, even a project.** A project given 60h and nothing inside it competes for time as one 60h block. -> Confirmed.
+9. **Deleting the last child schedules the budget.** Remove every task from a 90h project and it becomes 90h of work. -> Confirmed.
+10. **External items keep no plan.** The original date of a maintenance window is not recorded, only its effect on dependents. -> Confirmed.
+11. **External items only block what is linked.** Nothing warns about a task that uses the machine but is not linked to it. -> Confirmed.
