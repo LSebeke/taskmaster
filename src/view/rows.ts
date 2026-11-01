@@ -84,7 +84,7 @@ export function hiddenList(st: State, hidden: Set<string>): { id: string; title:
 export function vsPlan(st: State, a: Analysis, id: string): Marker {
   const b = a.by[id];
   if (st.items[id].kind === 'ext') return { text: b?.done ? 'past' : 'ext', tone: 'plain' };
-  if (b.draft) return { text: '○ no hrs', tone: 'muted', title: 'Add hours or children to schedule it' };
+  if (b.draft || (a.K[id] && b.end == null)) return { text: '○ no hrs', tone: 'muted', title: 'Add hours or children to schedule it' };
   if (!st.plan[id]) return { text: '● new', tone: 'muted', title: 'Not in the plan yet' };
   if (b.overDeadline) return { text: `▲ ${b.overDeadline}d`, tone: 'crit', title: 'Past deadline' };
   if (b.shift! > 0) return { text: `▲ +${b.shift}d`, tone: 'crit', title: 'Behind plan' };

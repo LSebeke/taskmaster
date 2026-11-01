@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyze, type State } from '../../src/engine';
 import { describeChanges } from '../../src/view/changes';
-import { countNotInPlan, statusOf, upcomingExternals, why } from '../../src/view/explain';
+import { countNotInPlan, planGapText, statusOf, upcomingExternals, why } from '../../src/view/explain';
 import { fmtD, h1 } from '../../src/view/format';
 import { D, external, state, task } from '../engine/helpers';
 
@@ -152,5 +152,38 @@ describe('format', () => {
     expect(fmtD(null)).toBe('—');
     expect(h1(2.25)).toBe('2.3');
     expect(h1(4)).toBe('4');
+  });
+});
+
+describe('plan gap', () => {
+  it('gives working days and hours', () => {
+    expect(planGapText({ planGap: 3, planGapH: 12 })).toBe('▲ Sub-level plans outgrew this plan by 3 working days and 12h.');
+  });
+
+  it('gives whichever applies, in the singular too', () => {
+    expect(planGapText({ planGap: 1 })).toBe('▲ Sub-level plans outgrew this plan by 1 working day.');
+    expect(planGapText({ planGapH: 4.5 })).toBe('▲ Sub-level plans outgrew this plan by 4.5h.');
+  });
+
+  it('says nothing without a gap', () => {
+    expect(planGapText({})).toBeNull();
+  });
+});
+
+describe('items not in the plan', () => {
+  const tree = () => state({ p: task('p', 0), a: task('a', 6, { parent: 'p' }), b: task('b', 6, { parent: 'p' }), q: task('q', 6) }, [['a', 'b', 'q']]);
+  const planned = { start: 0, end: 1, hours: 1 };
+
+  it('counts parents too, inside the scope, and itself', () => {
+    const st = tree();
+    const a = analyze(st);
+    expect(countNotInPlan(st, a, null)).toBe(4);
+    expect(countNotInPlan(st, a, 'p')).toBe(3);
+  });
+
+  it('stops counting what Update plan took in', () => {
+    const st = tree();
+    st.plan.a = st.plan.p = planned;
+    expect(countNotInPlan(st, analyze(st), 'p')).toBe(1);
   });
 });

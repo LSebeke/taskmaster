@@ -233,7 +233,7 @@ function drawLoad(c: CanvasRenderingContext2D, f: Frame, top: number) {
       c.fillRect(x, y - h, bw, h);
       y -= s.hours * sc;
     }
-    if (w.over) {
+    if (w.over && ui.show.conflicts) {
       c.fillStyle = pal.crit;
       c.fillText('▲', x + bw / 2 - 4, y - 2);
     }

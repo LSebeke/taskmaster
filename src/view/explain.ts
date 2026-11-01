@@ -1,4 +1,4 @@
-import { effDeps, leavesOf, workDays, type Analysis, type State } from '../engine';
+import { effDeps, leavesOf, workDays, type Analysis, type ItemResult, type State } from '../engine';
 import { fmtD, h1 } from './format';
 
 /** Unfinished work this item still waits for, latest first. Drafts are ignored by the scheduler, so here too. */
@@ -68,12 +68,19 @@ export function statusOf(st: State, a: Analysis, id: string): Status {
   return { tone: 'good', title: '✓ Inside the plan', sub: `Forecast ${fmtD(b.end)}${deadline}` };
 }
 
-const scopeLeaves = (st: State, a: Analysis, scope: string | null) =>
-  scope ? leavesOf(st, scope, a.K) : Object.keys(st.items).filter(i => !a.K[i]);
+function subtree(a: Analysis, id: string): string[] {
+  return [id, ...(a.K[id] ?? []).flatMap(c => subtree(a, c))];
+}
 
-/** Items the forecast has and the plan lacks. Externals never have a plan entry, and drafts have no dates. */
+/** Items the forecast has and the plan lacks, parents included. Externals never have a plan entry, and drafts have no dates. */
 export const countNotInPlan = (st: State, a: Analysis, scope: string | null): number =>
-  scopeLeaves(st, a, scope).filter(i => !st.plan[i] && !a.by[i]?.draft && st.items[i].kind !== 'ext').length;
+  (scope ? subtree(a, scope) : Object.keys(st.items)).filter(i => !st.plan[i] && a.by[i]?.end != null && st.items[i].kind !== 'ext').length;
+
+/** Child plans that outgrew this one, or null. */
+export function planGapText({ planGap, planGapH }: Pick<ItemResult, 'planGap' | 'planGapH'>): string | null {
+  const parts = [planGap ? `${planGap} working day${planGap > 1 ? 's' : ''}` : '', planGapH ? `${h1(planGapH)}h` : ''].filter(Boolean);
+  return parts.length ? `▲ Sub-level plans outgrew this plan by ${parts.join(' and ')}.` : null;
+}
 
 export function upcomingExternals(st: State, a: Analysis, scope: string | null): string[] {
   const used = scope ? new Set(leavesOf(st, scope, a.K).flatMap(l => effDeps(st, l, a.K))) : null;

@@ -613,6 +613,357 @@ const check = async (name, fn) => {
   await page.close();
 }
 
+// Plan layer, visibility, View menu.
+{
+  const tall = { width: 1600, height: 1300 };
+  const page = await open('theme=light', 'light', tall);
+  const select = title => rowByTitle(page, title).locator('.tm-t').click();
+  const planBtn = page.locator('.tm-plan-btn');
+  const dialog = page.locator('.tm-dialog');
+  const seg = name => page.getByRole('group', { name: `${name} visibility` });
+  const pressed = name => seg(name).locator('button.tm-on').textContent();
+  const planOf = id => page.evaluate(i => window.tm.stateFile().plan?.[window.tm.path(i)] ?? window.tm.store.state.plan[window.tm.path(i)], id);
+  const keepClear = () => page.mouse.move(5, 5);
+  const viewItem = label => page.locator('.tm-view-menu').getByLabel(label, { exact: true });
+  const viewBtn = page.locator('.tm-view-btn');
+
+  await check('button names its target: all, row, focus, external selected', async () => {
+    assert.equal(await planBtn.textContent(), 'Update plan: all projects');
+    await select('CAN stack port');
+    assert.equal(await planBtn.textContent(), 'Update plan: CAN stack port');
+    await page.keyboard.press('Escape');
+    await select('Test bench recalibration');
+    assert.equal(await planBtn.textContent(), 'Update plan: all projects');
+    await page.keyboard.press('Escape');
+    const fw = rowByTitle(page, 'Firmware');
+    await fw.hover();
+    await fw.locator('.tm-fb').click();
+    assert.equal(await planBtn.textContent(), 'Update plan: under Firmware');
+    await page.locator('.tm-up').click();
+    await page.locator('.tm-up').click();
+    await keepClear();
+  });
+
+  await check('a long name does not move the top bar', async () => {
+    const before = await page.locator('.tm-top').boundingBox();
+    const undoBefore = await page.locator('.tm-undo').boundingBox();
+    await select('EMC pre-scan (lab booked)');
+    assert.deepEqual(await page.locator('.tm-top').boundingBox(), before);
+    assert.deepEqual(await page.locator('.tm-undo').boundingBox(), undoBefore);
+    await page.keyboard.press('Escape');
+  });
+
+  await check('dialog lists rows with old and new ends, leaves externals out, opens from the top bar', async () => {
+    await planBtn.click();
+    assert.equal(await dialog.count(), 1);
+    const text = await dialog.textContent();
+    assert.match(text, /Update plan: all projects/);
+    for (const t of ['Sensor Gateway v2', 'Data Pipeline Migration']) assert.ok(text.includes(t), t);
+    assert.ok(!text.includes('Test bench recalibration'), 'external offered');
+    assert.match(text, /\d+ \w{3} → \d+ \w{3}/);
+    assert.ok((await dialog.getByRole('checkbox').count()) >= 3);
+    assert.equal(await dialog.getByLabel('Also update their sub-levels').isChecked(), true);
+    await shoot(page, 'plan-dialog-light');
+    await page.keyboard.press('Escape');
+    assert.equal(await dialog.count(), 0);
+  });
+
+  await check('a row without children offers no sub-levels', async () => {
+    await select('Runbook');
+    await planBtn.click();
+    assert.equal(await dialog.getByLabel('Also update their sub-levels').count(), 0);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+  });
+
+  await check('apply on a nested parent: it and its subtree change, ancestors and externals do not', async () => {
+    const top = await planOf('gw');
+    const fw = await planOf('gw.fw');
+    const ext = await note(page, 'x.bench');
+    const history = await page.evaluate(() => window.tm.store.state.planHistory.length);
+    await select('Drivers');
+    await planBtn.click();
+    await dialog.locator('.tm-primary').click();
+    await settle(page);
+    assert.equal(await dialog.count(), 0);
+    const file = await page.evaluate(() => window.tm.stateFile());
+    const path = await pathOf(page, 'gw.fw.drv.can');
+    assert.ok(await page.evaluate(i => window.tm.store.state.plan[i].end === window.tm.analyze().by[i].end, path), 'took the forecast');
+    assert.deepEqual(await planOf('gw'), top);
+    assert.deepEqual(await planOf('gw.fw'), fw);
+    assert.deepEqual(await note(page, 'x.bench'), ext);
+    assert.ok(!Object.keys(file.plan).includes(await pathOf(page, 'x.bench')));
+    assert.equal(file.planHistory.length, history + 1);
+    assert.match(await status(page), /^Plan updated on \d+ items/);
+    assert.match(await page.locator('.tm-undo').getAttribute('title'), /Plan updated/);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    assert.equal((await page.evaluate(() => window.tm.stateFile())).planHistory.length, history);
+    await page.keyboard.press('Escape');
+  });
+
+  await check('unticking a row and sub-levels narrows the update', async () => {
+    await select('Firmware');
+    await planBtn.click();
+    await dialog.getByLabel('Also update their sub-levels').uncheck();
+    await dialog.locator('.tm-primary').click();
+    await settle(page);
+    const last = (await page.evaluate(() => window.tm.stateFile())).planHistory.at(-1);
+    assert.deepEqual(last.ids, [await pathOf(page, 'gw.fw')]);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    await page.keyboard.press('Escape');
+    await planBtn.click();
+    const box = dialog.getByRole('checkbox').first();
+    await box.uncheck();
+    const total = await dialog.getByRole('checkbox').count();
+    assert.match(await dialog.locator('.tm-primary').textContent(), new RegExp(`Apply to ${total - 2} row`));
+    await page.keyboard.press('Escape');
+  });
+
+  await check('details panels have the button: task and parent', async () => {
+    await select('Runbook');
+    await page.locator('.tm-rail').getByText('Update plan…').click();
+    assert.match(await dialog.textContent(), /Update plan: Runbook/);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await select('Firmware');
+    await page.locator('.tm-rail').getByText('Update plan…').click();
+    assert.match(await dialog.textContent(), /Update plan: Firmware/);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+  });
+
+  await check('plan gap warning: rows under a parent outgrow it, and the parent says by how much', async () => {
+    await page.evaluate(() => {
+      const { store, edits, path } = window.tm;
+      store.apply(edits.setTotal(path('gw.fw.drv.can'), 300));
+      store.apply(edits.updatePlan([path('gw.fw.drv')], true));
+    });
+    await settle(page);
+    await select('Firmware');
+    const rail = await page.locator('.tm-rail').textContent();
+    assert.match(rail, /Sub-level plans outgrew this plan by \d+ working days? and [\d.]+h/);
+    await shoot(page, 'plan-gap-light');
+    await page.keyboard.press('Escape');
+  });
+
+  await check('history is browsable, newest first, with what changed', async () => {
+    await page.locator('.tm-rail').getByText('Plan history').click();
+    const box = page.locator('.tm-dialog');
+    assert.match(await box.textContent(), /Plan history/);
+    assert.match(await box.textContent(), /CAN stack port/);
+    assert.match(await box.textContent(), /→/);
+    await shoot(page, 'plan-history-light');
+    await page.keyboard.press('Escape');
+    assert.equal(await box.count(), 0);
+    await page.evaluate(async () => {
+      await window.tm.store.undo();
+      await window.tm.store.undo();
+    });
+    await settle(page);
+  });
+
+  await check('● new is counted until planned', async () => {
+    const before = await page.locator('.tm-rail').textContent();
+    assert.doesNotMatch(before, /not in the plan yet/);
+    await page.evaluate(() => {
+      const { store, path } = window.tm;
+      store.apply(st => { delete st.plan[path('dp.doc')]; return 'Drop'; });
+    });
+    await settle(page);
+    assert.match(await page.locator('.tm-rail').textContent(), /● 1 item is not in the plan yet/);
+    assert.equal(await rowByTitle(page, 'Runbook').locator('.tm-s').textContent(), '● new');
+    await select('Runbook');
+    await planBtn.click();
+    await dialog.locator('.tm-primary').click();
+    await settle(page);
+    await page.keyboard.press('Escape');
+    assert.doesNotMatch(await page.locator('.tm-rail').textContent(), /not in the plan yet/);
+    assert.notEqual(await rowByTitle(page, 'Runbook').locator('.tm-s').textContent(), '● new');
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+  });
+
+  await check('Plan and Forecast: three levels, default Solid and Ghost, a taken level swaps', async () => {
+    assert.equal(await pressed('Plan'), 'Solid');
+    assert.equal(await pressed('Forecast'), 'Ghost');
+    const before = await canvasHash(page);
+    const runsBefore = await runs(page);
+    await seg('Forecast').getByText('Solid').click();
+    assert.equal(await pressed('Plan'), 'Ghost');
+    assert.equal(await pressed('Forecast'), 'Solid');
+    assert.notEqual(await canvasHash(page), before);
+    await seg('Forecast').getByText('Off').click();
+    assert.equal(await pressed('Forecast'), 'Off');
+    await seg('Plan').getByText('Off').click();
+    assert.equal(await pressed('Plan'), 'Off');
+    assert.equal(await pressed('Forecast'), 'Ghost');
+    await seg('Plan').getByText('Solid').click();
+    assert.equal(await canvasHash(page), before);
+    assert.equal(await runs(page), runsBefore, 'visibility recalculated');
+  });
+
+  await check('links attach to plan bars when Forecast is off, to the forecast otherwise', async () => {
+    const dep = ['gw.fw.drv.can', 'gw.hw.can'];
+    const ends = await page.evaluate(([a, b]) => {
+      const { store, path, view } = window.tm;
+      const x = path(a);
+      const y = path(b);
+      const l = () => view.gantt.links.find(k => (k.a === x && k.b === y) || (k.a === y && k.b === x));
+      return { link: l(), plan: { [x]: store.state.plan[x], [y]: store.state.plan[y] } };
+    }, dep);
+    assert.ok(ends.link, 'seed has no such link');
+    assert.equal(ends.link.y0, 23);
+    await seg('Forecast').getByText('Off').click();
+    const off = await page.evaluate(({ a, b }) => window.tm.view.gantt.links.find(k => k.a === a && k.b === b), { a: ends.link.a, b: ends.link.b });
+    assert.equal(off.d0, ends.plan[ends.link.a].end + 1);
+    assert.equal(off.d1, ends.plan[ends.link.b].start);
+    assert.equal(off.y0, 12);
+    await seg('Forecast').getByText('Ghost').click();
+  });
+
+  await check('View menu: every switch works, hides nothing else, and never collapses the layout', async () => {
+    await viewBtn.click();
+    const menu = page.locator('.tm-view-menu');
+    assert.equal(await menu.count(), 1);
+    await shoot(page, 'view-menu-light');
+    const labels = await menu.locator('label').allTextContents();
+    assert.equal(labels.length, 18);
+    assert.equal(await viewItem('Capacity links').isChecked(), false);
+    const top = await page.locator('.tm-top').boundingBox();
+    for (const raw of labels) {
+      const label = raw.trim();
+      const box = viewItem(label);
+      const was = await box.isChecked();
+      await box.setChecked(!was);
+      const layout = await page.evaluate(() => {
+        const r = s => document.querySelector(s).getBoundingClientRect();
+        const c = r('.tm-chart');
+        const tree = r('.tm-tree');
+        const root = r('.tm-root');
+        return { cw: c.width, ch: c.height, tw: tree.width, th: tree.height, right: c.right, rootRight: root.right, rail: !!document.querySelector('.tm-rail').offsetWidth };
+      });
+      assert.ok(layout.cw > 500 && layout.ch > 500 && layout.tw > 200 && layout.th > 500, `${label}: ${JSON.stringify(layout)}`);
+      assert.deepEqual(await page.locator('.tm-top').boundingBox(), top, label);
+      await box.setChecked(was);
+    }
+    await page.keyboard.press('Escape');
+    assert.equal(await menu.count(), 0);
+  });
+
+  await check('View menu: click outside closes it; each toggle reaches the screen', async () => {
+    await viewBtn.click();
+    await page.mouse.click(800, 700);
+    assert.equal(await page.locator('.tm-view-menu').count(), 0);
+    await viewBtn.click();
+    const dom = {
+      Legend: () => page.locator('.tm-legend').isVisible(),
+      'Right rail': () => page.locator('.tm-rail').isVisible(),
+      'Status bar': () => page.locator('.tm-status').isVisible(),
+      'Hide toggles': () => page.locator('.tm-row .tm-eye').first().isVisible(),
+      'Done and vs-plan columns': () => page.locator('.tm-row .tm-s').first().isVisible(),
+      'Load strip': () => page.locator('.tm-tree-foot').isVisible(),
+    };
+    for (const [label, seen] of Object.entries(dom)) {
+      assert.equal(await seen(), true, label);
+      await viewItem(label).uncheck();
+      assert.equal(await seen(), false, label);
+      await viewItem(label).check();
+    }
+    for (const label of ['Today line', 'Dependencies', 'Critical chain', 'Deadlines', 'Pinned edges', 'Milestones', 'Weekend shading', 'Gridlines', 'Ghost layer']) {
+      const before = await canvasHash(page);
+      await viewItem(label).uncheck();
+      assert.notEqual(await canvasHash(page), before, label);
+      await viewItem(label).check();
+      assert.equal(await canvasHash(page), before, label);
+    }
+    const before = await canvasHash(page);
+    await viewItem('Capacity links').check();
+    assert.notEqual(await canvasHash(page), before, 'capacity links');
+    assert.match(await page.locator('.tm-legend').textContent(), /waiting for capacity/);
+    await viewItem('Capacity links').uncheck();
+    const rows = await rowCount(page);
+    await viewItem('External items').uncheck();
+    assert.ok((await rowCount(page)) < rows);
+    await viewItem('External items').check();
+    await page.keyboard.press('Escape');
+  });
+
+  await check('Update plan works from Clean for sharing, with the rail gone', async () => {
+    await viewBtn.click();
+    await page.getByText('Clean for sharing').click();
+    await planBtn.click();
+    assert.equal(await dialog.isVisible(), true);
+    await page.keyboard.press('Escape');
+    await viewBtn.click();
+    await page.locator('.tm-view-menu').getByText('Default').click();
+    assert.equal(await page.locator('.tm-legend').isVisible(), true);
+    assert.equal(await pressed('Plan'), 'Solid');
+    assert.equal(await pressed('Forecast'), 'Ghost');
+  });
+  await page.close();
+}
+
+/** Share of the chart painted something other than its background. */
+const inked = page =>
+  page.evaluate(() => {
+    const c = document.querySelector('.tm-canvas');
+    const dpr = c.width / c.clientWidth;
+    const top = Math.round(44 * dpr);
+    const d = c.getContext('2d').getImageData(0, top, c.width, c.height - top).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i]) n++;
+    return n / (d.length / 4);
+  });
+
+// Every visibility combination and Clean for sharing, both themes.
+for (const theme of ['light', 'dark']) {
+  await check(`layer combinations and Clean for sharing, ${theme}`, async () => {
+    const page = await open(`theme=${theme}`, theme);
+    const left = () => page.evaluate(() => document.querySelector('.tm-scroller').scrollLeft);
+    const home = await left();
+    const seg = name => page.getByRole('group', { name: `${name} visibility` });
+    const setLevels = async (plan, fc) => {
+      await seg('Plan').getByText(plan, { exact: true }).click();
+      await seg('Forecast').getByText(fc, { exact: true }).click();
+      await page.mouse.move(5, 5);
+    };
+    const pairs = [['Solid', 'Ghost'], ['Ghost', 'Solid'], ['Solid', 'Off'], ['Off', 'Solid'], ['Ghost', 'Off'], ['Off', 'Ghost']];
+    for (const [plan, fc] of pairs) {
+      await setLevels(plan, fc);
+      assert.equal(await seg('Plan').locator('.tm-on').textContent(), plan);
+      assert.equal(await seg('Forecast').locator('.tm-on').textContent(), fc);
+      await shoot(page, `layers-plan-${plan}-fc-${fc}-${theme}`.toLowerCase());
+      assert.ok((await inked(page)) > 0.002, `${plan}/${fc} is blank`);
+    }
+    for (const [plan, fc] of pairs) {
+      await setLevels(plan, fc);
+      await page.locator('.tm-view-btn').click();
+      await page.getByText('Clean for sharing').click();
+      await page.mouse.move(5, 5);
+      await shoot(page, `clean-from-${plan}-${fc}-${theme}`.toLowerCase());
+      const ink = await inked(page);
+      assert.ok(ink > 0.01, `Clean from ${plan}/${fc}: ${ink}`);
+      assert.equal(await rowCount(page) > 10, true);
+      const box = await page.locator('.tm-chart').boundingBox();
+      assert.ok(box.width > 900 && box.height > 700, JSON.stringify(box));
+      assert.equal(await page.locator('.tm-top').isVisible(), true);
+      for (const hidden of ['.tm-legend', '.tm-rail', '.tm-status', '.tm-tree-foot']) assert.equal(await page.locator(hidden).isVisible(), false, hidden);
+      const solid = await seg('Plan').locator('.tm-on').textContent();
+      assert.equal(solid, plan === 'Off' || (fc === 'Solid' && plan !== 'Solid') ? 'Off' : 'Solid');
+      await page.locator('.tm-view-btn').click();
+      await page.locator('.tm-view-menu').getByText('Default').click();
+    }
+    await page.mouse.move(5, 5);
+    await shoot(page, `default-restored-${theme}`);
+    assert.ok(Math.abs((await left()) - home) <= 1, `Default puts Today back: ${await left()} vs ${home}`);
+    await page.close();
+  });
+}
+
 await structureChecks({ open, shoot, check, rowByTitle, railTitle, status, settle });
 
 await check('empty vault', async () => {
@@ -648,6 +999,298 @@ await check('windowed column at 1,110 items', async () => {
   await page.close();
 });
 
+// To-do rail: real mouse drags, the real store, a fake vault.
+{
+  const page = await open('theme=light', 'light', { width: 1600, height: 1300 });
+  const tab = name => page.locator('.tm-tab', { hasText: name });
+  const levels = page.locator('.tm-level');
+  const taskRow = title => page.locator('.tm-td', { has: page.locator(`.tm-td-title[title="${title}"]`) });
+  const tiers = () => page.evaluate(() => window.tm.store.state.tiers);
+  const titles = () => page.evaluate(() => window.tm.store.state.tiers.map(t => t.map(id => window.tm.store.state.items[id].title)));
+  const forecast = () => page.evaluate(() => window.tm.forecast());
+  const body = id => page.evaluate(i => window.tm.vault.notes.get(window.tm.path(i)).body, id);
+  const box = async loc => {
+    const b = await loc.boundingBox();
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2, top: b.y, bottom: b.y + b.height };
+  };
+  /** Presses on a row and carries it to a point, still held. */
+  const carry = async (title, to) => {
+    const from = await box(taskRow(title).locator('.tm-td-hd'));
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + 4, from.y + 6, { steps: 3 });
+    await page.mouse.move(to.x, to.y, { steps: 10 });
+    await page.mouse.move(to.x, to.y + 1);
+  };
+  /** Where everything sits, to prove a drag shifts nothing. */
+  const layout = () =>
+    page.evaluate(() => JSON.stringify([...document.querySelectorAll('.tm-level,.tm-td,.tm-level-head')].map(e => Object.values(e.getBoundingClientRect().toJSON()))));
+
+  await tab('To-do').click();
+  await check('to-do tab shows one box per level, overall by default', async () => {
+    assert.equal(await levels.count(), (await tiers()).length);
+    assert.match(await levels.nth(0).locator('.tm-level-head').textContent(), /Priority 1/);
+    const all = (await titles()).flat();
+    assert.equal(await page.locator('.tm-td').count(), all.length);
+  });
+  await check('headers show task count and equal burn', async () => {
+    const t = await titles();
+    const i = t.findIndex(l => l.length > 1);
+    assert.match(await levels.nth(i).locator('.tm-level-head').textContent(), new RegExp(`${t[i].length} tasks, equal burn`));
+  });
+  await check('rows show open to-dos, hours left and burn', async () => {
+    assert.match(await taskRow('CAN transceiver debug').locator('.tm-td-hd').textContent(), /☐\s*\d+\s+[\d.]+h · [\d.]+h\/d/);
+  });
+  await check('a row expands to its to-dos; a tick writes the note and undoes', async () => {
+    const row = taskRow('CAN transceiver debug');
+    await row.locator('.tm-td-open').click();
+    const box = row.locator('input[type=checkbox]').first();
+    await box.waitFor();
+    const was = await body('gw.hw.can');
+    const label = row.locator('.tm-todos label').first();
+    const text = (await label.textContent()).trim();
+    const on = await box.isChecked();
+    await box.click();
+    assert.equal(await box.isChecked(), !on);
+    await settle(page);
+    assert.notEqual(await body('gw.hw.can'), was);
+    assert.match(await body('gw.hw.can'), new RegExp(`\\[${on ? ' ' : 'x'}\\] ${text}`));
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    assert.equal(await body('gw.hw.can'), was);
+    assert.equal(await box.isChecked(), on);
+  });
+  await check('adding a to-do writes the note, shows, and undoes', async () => {
+    const row = taskRow('CAN transceiver debug');
+    const was = await row.locator('.tm-td-hd .tm-num').textContent();
+    const add = row.locator('.tm-todo-add');
+    await add.fill('Check bus load');
+    await add.press('Enter');
+    await row.locator('.tm-todos label', { hasText: 'Check bus load' }).waitFor();
+    assert.equal(await add.inputValue(), '');
+    assert.notEqual(await row.locator('.tm-td-hd .tm-num').textContent(), was);
+    await settle(page);
+    assert.match(await body('gw.hw.can'), /- \[ \] Check bus load/);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    assert.doesNotMatch(await body('gw.hw.can'), /Check bus load/);
+    await row.locator('.tm-td-open').click();
+  });
+
+  const multi = (await titles()).findIndex(l => l.length > 1);
+  await check('drag within a level: neutral, line, banner, no shift, forecast untouched', async () => {
+    const t = await titles();
+    const [first, second] = t[multi];
+    const before = await forecast();
+    const hash = await canvasHash(page);
+    const still = await layout();
+    const target = await box(taskRow(second));
+    await carry(first, { x: target.x, y: target.bottom - 3 });
+    assert.equal(await page.locator('.tm-lists.tm-dragging').count(), 1);
+    const styles = await levels.evaluateAll(els => els.map(e => getComputedStyle(e).borderTopStyle));
+    assert.ok(styles.every(s => s === 'dashed'), `borders ${styles}`);
+    assert.equal(await levels.nth(multi).evaluate(e => e.classList.contains('tm-level-same')), true);
+    assert.equal(await page.locator('.tm-banner').count(), 1);
+    assert.equal(await levels.nth(multi).locator('.tm-banner').textContent(), 'Order only: schedule stays the same');
+    assert.equal(await page.locator('.tm-insert').count(), 1);
+    await shoot(page, 'todo-drag-same-light');
+    assert.equal(await layout(), still, 'layout moved during the drag');
+    await page.mouse.up();
+    await settle(page);
+    assert.deepEqual((await titles())[multi].slice(0, 2), [second, first]);
+    assert.equal(await page.locator('.tm-banner').count(), 0);
+    assert.equal(await page.locator('.tm-lists.tm-dragging').count(), 0);
+    assert.equal(await forecast(), before);
+    assert.equal(await canvasHash(page), hash);
+    assert.equal(await page.locator('.tm-undo').isDisabled(), false);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    assert.deepEqual((await titles())[multi].slice(0, 2), [first, second]);
+  });
+  await check('drag to another level: warning, line, banner, no shift, then moved and undoable', async () => {
+    const t = await titles();
+    const other = multi === 0 ? 1 : 0;
+    const moving = t[multi][0];
+    const before = await forecast();
+    const still = await layout();
+    const target = await box(taskRow(t[other][0]));
+    await carry(moving, { x: target.x, y: target.top + 3 });
+    assert.equal(await levels.nth(other).evaluate(e => e.classList.contains('tm-level-cross')), true);
+    assert.equal(await levels.nth(other).locator('.tm-banner').textContent(), `Moves to Priority ${other + 1}: changes who gets hours`);
+    assert.equal(await page.locator('.tm-insert').count(), 1);
+    const line = await box(page.locator('.tm-insert'));
+    assert.ok(Math.abs(line.y - target.top) < 6, `line at ${line.y}, row at ${target.top}`);
+    await shoot(page, 'todo-drag-cross-light');
+    assert.equal(await layout(), still, 'layout moved during the drag');
+    await page.mouse.up();
+    await settle(page);
+    const moved = await titles();
+    assert.equal(moved.length, t.length, 'a drag never creates a level');
+    assert.equal(moved[other][0], moving);
+    assert.notEqual(await forecast(), before);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    assert.deepEqual(await titles(), t);
+    assert.equal(await forecast(), before);
+  });
+  await check('dropping outside a level does nothing', async () => {
+    const t = await titles();
+    const wasUndo = await page.locator('.tm-undo').textContent();
+    const head = await box(page.locator('.tm-lists-intro'));
+    await carry(t[multi][0], { x: head.x, y: head.y });
+    assert.equal(await page.locator('.tm-banner').count(), 0);
+    assert.equal(await page.locator('.tm-insert').count(), 0);
+    assert.equal(await page.locator('.tm-lists.tm-dragging').count(), 1);
+    await page.mouse.up();
+    await settle(page);
+    assert.equal(await page.locator('.tm-lists.tm-dragging').count(), 0);
+    assert.deepEqual(await titles(), t);
+    assert.equal(await page.locator('.tm-undo').textContent(), wasUndo);
+    // And leaving the rail altogether, after showing a level's banner.
+    const target = await box(taskRow(t[multi][1]));
+    await carry(t[multi][0], target);
+    assert.equal(await page.locator('.tm-banner').count(), 1);
+    await page.mouse.move(500, 300, { steps: 6 });
+    assert.equal(await page.locator('.tm-banner').count(), 0);
+    await page.mouse.up();
+    await settle(page);
+    assert.deepEqual(await titles(), t);
+  });
+  await check('levels: + above, + New at the bottom, Remove only on empty ones', async () => {
+    const n = (await tiers()).length;
+    const before = await forecast();
+    assert.equal(await page.locator('.tm-level-remove').count(), 0);
+    await levels.nth(0).locator('.tm-level-add').click();
+    assert.equal(await levels.count(), n + 1);
+    assert.equal((await tiers())[0].length, 0);
+    assert.equal(await levels.nth(0).locator('.tm-level-remove').count(), 1);
+    assert.match(await levels.nth(0).textContent(), /Empty/);
+    await page.locator('.tm-level-bottom').click();
+    assert.equal(await levels.count(), n + 2);
+    assert.equal((await tiers()).at(-1).length, 0);
+    assert.equal(await page.locator('.tm-level-remove').count(), 2);
+    assert.equal(await forecast(), before);
+    await shoot(page, 'todo-empty-levels-light');
+    await levels.nth(n + 1).locator('.tm-level-remove').click();
+    await levels.nth(0).locator('.tm-level-remove').click();
+    assert.equal(await levels.count(), n);
+    await page.locator('.tm-undo').click();
+    await page.locator('.tm-undo').click();
+    await page.locator('.tm-undo').click();
+    await page.locator('.tm-undo').click();
+    assert.equal(await levels.count(), n);
+    await settle(page);
+  });
+  await check('dragging into an empty level moves there; the emptied level stays until removed', async () => {
+    const t = await titles();
+    await levels.nth(0).locator('.tm-level-add').click();
+    const target = await box(levels.nth(0).locator('.tm-level-empty'));
+    const moving = t[0][0];
+    const still = await layout();
+    await carry(moving, target);
+    assert.equal(await levels.nth(0).locator('.tm-banner').textContent(), 'Moves to Priority 1: changes who gets hours');
+    assert.equal(await page.locator('.tm-insert').count(), 1);
+    assert.equal(await layout(), still);
+    await page.mouse.up();
+    await settle(page);
+    assert.deepEqual((await titles())[0], [moving]);
+    await page.locator('.tm-undo').click();
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    assert.deepEqual(await titles(), t);
+  });
+  await check('project list follows the focused project', async () => {
+    assert.equal(await page.locator('.tm-todo-scope button').nth(1).isDisabled(), true);
+    const dp = rowByTitle(page, 'Data Pipeline Migration');
+    await dp.hover();
+    await dp.locator('.tm-fb').click();
+    assert.equal(await page.locator('.tm-tab.tm-on').textContent(), 'To-do');
+    const inProject = await page.evaluate(() => {
+      const { items, tiers } = window.tm.store.state;
+      const root = i => (items[i].parent ? root(items[i].parent) : i);
+      return tiers.flat().filter(i => items[root(i)].title === 'Data Pipeline Migration').length;
+    });
+    assert.ok(inProject > 0);
+    assert.equal(await page.locator('.tm-td').count(), inProject);
+    assert.equal(await levels.count(), (await tiers()).length);
+    await page.locator('.tm-todo-scope button').nth(1).waitFor();
+    assert.match(await page.locator('.tm-todo-scope button').nth(1).textContent(), /Data Pipeline Migration/);
+    await shoot(page, 'todo-project-light');
+    await page.locator('.tm-todo-scope button').nth(0).click();
+    assert.equal(await page.locator('.tm-td').count(), (await tiers()).flat().length);
+    await page.locator('.tm-todo-scope button').nth(1).click();
+    await page.locator('.tm-up').click();
+    assert.equal(await page.locator('.tm-td').count(), (await tiers()).flat().length);
+  });
+  await check('level ids with no item yet are tolerated', async () => {
+    const n = await page.locator('.tm-td').count();
+    await page.evaluate(() => window.tm.store.state.tiers.push(['Projects/not indexed yet.md']));
+    await page.locator('.tm-tab', { hasText: 'Overview' }).click();
+    await tab('To-do').click();
+    assert.equal(await page.locator('.tm-td').count(), n);
+    assert.match(await levels.last().textContent(), /Empty/);
+    assert.equal(await levels.last().locator('.tm-level-remove').count(), 0);
+    await page.evaluate(() => window.tm.store.state.tiers.pop());
+    await page.locator('.tm-tab', { hasText: 'Overview' }).click();
+    await tab('To-do').click();
+  });
+  await check('clicking a row title opens its details', async () => {
+    await taskRow('CAN transceiver debug').locator('.tm-td-title').click();
+    assert.equal(await railTitle(page), 'CAN transceiver debug');
+    assert.equal(await page.locator('.tm-tab.tm-on').textContent(), 'Details');
+  });
+  await check('task details: priority dropdown lists existing levels and moves the task', async () => {
+    const pick = page.locator('.tm-rail select[aria-label="Priority"]');
+    const t = await titles();
+    assert.deepEqual(await pick.locator('option').allTextContents(), t.map((_, i) => `Priority ${i + 1}`));
+    const from = t.findIndex(l => l.includes('CAN transceiver debug'));
+    const to = from === 0 ? 1 : 0;
+    assert.equal(await pick.inputValue(), String(from));
+    const before = await forecast();
+    await pick.selectOption(String(to));
+    assert.ok((await titles())[to].includes('CAN transceiver debug'));
+    assert.equal(await pick.inputValue(), String(to));
+    assert.notEqual(await forecast(), before);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+  });
+  await check('task details: to-dos tick and add', async () => {
+    const list = page.locator('.tm-rail .tm-todos');
+    const box = list.locator('input[type=checkbox]').last();
+    const was = await box.isChecked();
+    const note = await body('gw.hw.can');
+    await box.click();
+    assert.equal(await box.isChecked(), !was);
+    await settle(page);
+    assert.notEqual(await body('gw.hw.can'), note);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    const add = page.locator('.tm-rail .tm-todo-add');
+    await add.fill('From details');
+    await add.press('Enter');
+    await list.locator('label', { hasText: 'From details' }).waitFor();
+    await settle(page);
+    assert.match(await body('gw.hw.can'), /- \[ \] From details/);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    await page.keyboard.press('Escape');
+  });
+  await check('parent overview: to-dos tick', async () => {
+    await page.locator('.tm-rail').click({ position: { x: 5, y: 5 } });
+    await page.evaluate(() => window.tm.store.addTodo(window.tm.path('gw.fw'), 'Review boot flow'));
+    await settle(page);
+    await page.locator('.tm-tab', { hasText: 'Overview' }).click();
+    await rowByTitle(page, 'Firmware').locator('.tm-t').click();
+    const box = page.locator('.tm-rail .tm-todos input[type=checkbox]');
+    await box.waitFor();
+    await box.click();
+    await settle(page);
+    assert.match(await body('gw.fw'), /- \[x\] Review boot flow/);
+    await page.keyboard.press('Escape');
+  });
+  await page.close();
+}
+
 // Screenshots
 for (const theme of ['light', 'dark']) {
   await check(`screenshots ${theme}`, async () => {
@@ -655,6 +1298,19 @@ for (const theme of ['light', 'dark']) {
     await shoot(page, `top-${theme}`);
     await rowByTitle(page, 'CAN transceiver debug').locator('.tm-t').click();
     await shoot(page, `task-${theme}`);
+    await page.locator('.tm-tab', { hasText: 'To-do' }).click();
+    await page.locator('.tm-td-open').first().click();
+    await page.locator('.tm-td .tm-todos').waitFor();
+    const moving = await page.locator('.tm-td-hd').first().boundingBox();
+    const into = await page.locator('.tm-level').nth(1).locator('.tm-td-hd').nth(1).boundingBox();
+    await page.mouse.move(moving.x + 60, moving.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(into.x + 60, into.y + 16, { steps: 10 });
+    await page.mouse.move(into.x + 60, into.y + 15);
+    await shoot(page, `todo-drag-${theme}`);
+    await page.mouse.move(800, 300, { steps: 4 });
+    await page.mouse.up();
+    await page.locator('.tm-tab', { hasText: 'Details' }).click();
     await page.keyboard.press('Escape');
     const row = rowByTitle(page, 'Sensor Gateway v2');
     await row.hover();

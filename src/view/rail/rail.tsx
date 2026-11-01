@@ -1,6 +1,7 @@
 import type { UiState } from '../ui-state';
 import { AllProjects, ExternalPanel, Overview, TaskPanel } from './panels';
 import type { PanelProps } from './parts';
+import { TodoTab } from './todo-tab';
 
 type RailProps = Omit<PanelProps, 'id'> & { ui: UiState; roots: string[] };
 
@@ -15,13 +16,20 @@ function Panel({ st, a, ui, roots, act, readTodos, previewing }: RailProps) {
 }
 
 export function Rail(props: RailProps) {
+  const { ui, act } = props;
+  const todo = ui.tab === 'todo';
   return (
     <>
       <div class="tm-tabs">
-        <span class="tm-tab">{props.ui.sel ? 'Details' : 'Overview'}</span>
+        <button class={`tm-tab${todo ? '' : ' tm-on'}`} onClick={() => act.ui({ tab: 'overview' })}>
+          {ui.sel ? 'Details' : 'Overview'}
+        </button>
+        <button class={`tm-tab${todo ? ' tm-on' : ''}`} onClick={() => act.ui({ tab: 'todo' })}>
+          To-do
+        </button>
       </div>
-      <div class="tm-panel">
-        <Panel {...props} />
+      <div class="tm-panel" key={ui.tab}>
+        {todo ? <TodoTab {...props} /> : <Panel {...props} />}
       </div>
     </>
   );

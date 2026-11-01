@@ -98,6 +98,11 @@ describe('vs plan marker', () => {
     expect(marker(st, 'a')).toMatchObject({ text: '▲ 7d', tone: 'crit' });
   });
 
+  it('a parent of drafts only is no new work: Update plan has no dates for it', () => {
+    const st = state({ p: task('p', 0), d: task('d', 0, { parent: 'p', est: 0 }) }, []);
+    expect(marker(st, 'p').text).toBe('○ no hrs');
+  });
+
   it('done, new, draft', () => {
     const st = state({ a: task('a', 0, { spent: 5, est: 5, doneOn: D('2026-10-30') }), b: task('b', 6), c: task('c', 0, { est: 0 }) }, [['b']]);
     st.plan.a = { start: D('2026-10-28'), end: D('2026-10-30'), hours: 5 };

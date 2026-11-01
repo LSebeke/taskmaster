@@ -1,6 +1,6 @@
 import { leavesOf, type Scope } from '../../engine';
-import { deleteLogEntry, editLogEntry, setBudget, setDeadline, setHoursLeft, setPin, setScope, setTotal } from '../../store/edits';
-import { countNotInPlan, upcomingExternals, why } from '../explain';
+import { deleteLogEntry, editLogEntry, moveTask, setBudget, setDeadline, setHoursLeft, setPin, setScope, setTotal } from '../../store/edits';
+import { countNotInPlan, planGapText, upcomingExternals, why } from '../explain';
 import { fmtD, h1 } from '../format';
 import { DateField, Deps, EdgeSwitch, LogForm, NumField } from './fields';
 import { Card, Dated, Field, Link, Notes, StatusCard, Tiles, Todos, type PanelProps } from './parts';
@@ -19,7 +19,11 @@ function Lists({ st, a, scope, act }: { scope: string | null } & Pick<PanelProps
   const externals = upcomingExternals(st, a, scope);
   return (
     <>
-      {unplanned > 0 && <Card tone="warn">● {unplanned} item(s) are not in the plan yet. The forecast includes them, the plan does not.</Card>}
+      {unplanned > 0 && (
+        <Card tone="warn">
+          ● {unplanned} item{unplanned > 1 ? 's are' : ' is'} not in the plan yet. The forecast includes {unplanned > 1 ? 'them' : 'it'}, the plan does not.
+        </Card>
+      )}
       {externals.length > 0 && <h3>External</h3>}
       {externals.map(i => (
         <div class="tm-li" key={i}>
@@ -38,6 +42,9 @@ function Lists({ st, a, scope, act }: { scope: string | null } & Pick<PanelProps
           </Card>
         </div>
       ))}
+      <div class="tm-actions">
+        <button onClick={act.openHistory}>Plan history ({st.planHistory?.length ?? 0})</button>
+      </div>
     </>
   );
 }
@@ -73,23 +80,19 @@ export function Overview({ st, a, id, act, readTodos, previewing, selected, focu
   const it = st.items[id];
   const b = a.by[id];
   const free = it.budget != null ? it.budget - b.spent - b.left : 0;
+  const gap = planGapText(b);
   return (
     <>
       {selected && <Back act={act} />}
       <h2 class="tm-title">{it.title}</h2>
       <StatusCard st={st} a={a} id={id} />
       <Tiles st={st} a={a} id={id} />
-      {!focused && (
-        <div class="tm-actions">
-          <button onClick={() => act.focus(id)}>⤢ Focus chart</button>
-        </div>
-      )}
+      <div class="tm-actions">
+        {!focused && <button onClick={() => act.focus(id)}>⤢ Focus chart</button>}
+        <button onClick={act.openPlan}>Update plan…</button>
+      </div>
       {free > 0 && <Card tone="warn">▲ {h1(free)}h of budget are not in any item yet. The forecast ignores them, so finish dates look earlier than they will be.</Card>}
-      {(b.planGap || b.planGapH) && (
-        <Card tone="warn">
-          ▲ Sub-level plans outgrew this plan by {b.planGap ? `${b.planGap} working days` : ''} {b.planGapH ? `${h1(b.planGapH)}h` : ''}. This level stays until you update it from one level up.
-        </Card>
-      )}
+      {gap && <Card tone="warn">{gap} This level's plan stays until you update it.</Card>}
       <h3>Linked notes</h3>
       <Notes st={st} id={id} act={act} />
       <h3>Properties</h3>
@@ -106,7 +109,7 @@ export function Overview({ st, a, id, act, readTodos, previewing, selected, focu
       {!!it.todos?.length && (
         <>
           <h3>To-dos</h3>
-          <Todos a={a} id={id} readTodos={readTodos} />
+          <Todos st={st} a={a} id={id} act={act} readTodos={readTodos} previewing={previewing} />
         </>
       )}
       <Lists st={st} a={a} scope={id} act={act} />
@@ -147,6 +150,9 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
         )}
         {peers > 0 && <div class="tm-sub">Same priority as {peers} task(s), shares burn equally</div>}
       </Card>
+      <div class="tm-actions">
+        <button onClick={act.openPlan}>Update plan…</button>
+      </div>
       <Field label="Name">{it.title}</Field>
       <Field label="Inside">{titleOf(st, it.parent) ?? 'Top level (project)'}</Field>
       {!ms && (
@@ -187,7 +193,19 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
             </div>
           ))}
           <h3>Priority and scope</h3>
-          <Field label="Priority">{level >= 0 ? `Priority ${level + 1}` : 'None'}</Field>
+          <Field label="Priority">
+            {level < 0 ? (
+              'None'
+            ) : (
+              <select aria-label="Priority" value={level} onChange={e => act.apply(moveTask(id, Number(e.currentTarget.value)))}>
+                {st.tiers.map((_, i) => (
+                  <option value={i} key={i}>
+                    Priority {i + 1}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
           <Field label="Scope">
             <select aria-label="Scope" value={it.scope ?? 'must'} onChange={e => act.apply(setScope(id, e.currentTarget.value as Scope))}>
               {SCOPES.map(s => (
@@ -204,7 +222,7 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
       {!ms && (
         <>
           <h3>To-dos</h3>
-          <Todos a={a} id={id} readTodos={readTodos} />
+          <Todos st={st} a={a} id={id} act={act} readTodos={readTodos} previewing={previewing} />
         </>
       )}
       <h3>Linked notes</h3>

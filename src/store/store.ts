@@ -6,9 +6,14 @@ import { movedPath, type StoreApp, type StoreWarning } from './ports';
 import { inOrder, projectNotes } from './project';
 import { defaultStateFile, parseStateFile, serializeState, STATE_BAD, STATE_PATH, STATE_TMP, writeStateAtomically } from './state-file';
 import { Structure, type Done } from './structure';
+import { addToText, parseTodos, removeFromText, tickInText } from './todos';
 import { NoteWriter, type Patch } from './writer';
 
-const CHECKBOX = /^\s*(?:[-*+]|\d+[.)])\s+\[.\]\s*/;
+/** One to-do edit: on the projected list, shown at once, and on the note's text, later. */
+interface TodoChange {
+  list(todos: Todo[]): Todo[];
+  text(text: string): string;
+}
 /** How often to look for a new day while nothing else happens. */
 const CLOCK_MS = 60_000;
 /** Renames remembered for links the cache has yet to catch up with. */
@@ -147,6 +152,8 @@ export class TaskmasterStore {
   private structure: Structure;
   /** What listeners last saw. A cache event that changes nothing stays silent, which also absorbs our own writes. */
   private seen = '';
+  /** To-dos as edited, until the cache has them. Its list items lag the note. */
+  private todoOverlay = new Map<string, Todo[]>();
   private disposed = false;
 
   constructor(
@@ -157,7 +164,7 @@ export class TaskmasterStore {
     this.debounceMs = opts.debounceMs ?? 100;
     this.writeMs = opts.writeMs ?? 300;
     this.today = opts.today ?? localToday;
-    this.writes = new NoteWriter(app, this.writeMs, (path, e) => this.writeFailed(path, e));
+    this.writes = new NoteWriter(app, this.writeMs, (path, e) => this.writeFailed(path, e), path => this.todosSettled(path));
     const { weekly, weekCap, holidays, ...rest } = defaultStateFile();
     this.st = { ...rest, items: {}, today: 0, settings: { weekly, weekCap, holidays, staleDays: opts.staleDays ?? 7 } };
     const store = this;
@@ -311,24 +318,44 @@ export class TaskmasterStore {
     this.writes.editBody(path, edit);
   }
 
+  /** Ticks or unticks to-do `index`, whose text the panel read as `t`. */
+  setTodoDone(id: string, index: number, t: string, done: boolean): boolean {
+    const list = this.st.items[id]?.todos;
+    if (!list?.[index] || list[index].done === done) return false;
+    const change = (d: boolean): TodoChange => ({
+      list: todos => todos.map((x, i) => (i === index ? { ...x, done: d } : x)),
+      text: text => tickInText(text, index, t, d),
+    });
+    this.changeTodos(id, `${done ? 'Ticked' : 'Unticked'} ${t}`, change(done), change(!done));
+    return true;
+  }
+
+  /** Adds an unticked to-do after the last one. Blank text does nothing. */
+  addTodo(id: string, text: string): boolean {
+    const t = text.trim();
+    const list = this.st.items[id]?.todos;
+    if (!t || !list) return false;
+    const index = list.length;
+    this.changeTodos(
+      id,
+      `Added to-do ${t}`,
+      { list: todos => [...todos, { t: '', done: false }], text: x => addToText(x, t) },
+      { list: todos => todos.filter((_, i) => i !== index), text: x => removeFromText(x, index, t) },
+    );
+    return true;
+  }
+
   /** Writes everything waiting, now. */
   async flush(): Promise<void> {
     const state = this.stateTimer != null ? this.writeState() : Promise.resolve();
     await Promise.all([this.writes.flush(), state, this.stateBusy]);
   }
 
-  /** To-dos with their text. The cache knows only the checkbox, so this reads the note: for panels, never boot. */
+  /** To-dos with their text, from the note: the cache has only the checkbox and lags writes. For panels, never boot. */
   async readTodos(id: string): Promise<Todo[]> {
-    const file = this.app.vault.getMarkdownFiles().find(f => f.path === id);
+    const file = this.app.vault.getFileByPath(id);
     if (!file) return [];
-    const list = this.app.metadataCache.getFileCache(file)?.listItems ?? [];
-    const text = await this.app.vault.cachedRead(file);
-    return list
-      .filter(l => l.task !== undefined)
-      .map(l => ({
-        t: text.slice(l.position.start.offset, l.position.end.offset).split('\n')[0].replace(CHECKBOX, ''),
-        done: l.task !== ' ',
-      }));
+    return parseTodos(this.writes.withBodyEdits(id, await this.app.vault.cachedRead(file)));
   }
 
   dispose(): void {
@@ -408,6 +435,35 @@ export class TaskmasterStore {
     }
   }
 
+  private changeTodos(id: string, label: string, change: TodoChange, inverse: TodoChange) {
+    let held = id;
+    this.writeTodos(id, change);
+    this.record({
+      label,
+      undo: () => {
+        if (!this.st.items[held]) return;
+        this.writeTodos(held, inverse);
+        this.publish(`Undid: ${label}`);
+      },
+      moved: (from, to) => {
+        held = movedPath(held, from, to);
+      },
+    });
+    this.publish(label);
+  }
+
+  private writeTodos(id: string, change: TodoChange) {
+    this.todoOverlay.set(id, change.list(this.st.items[id].todos ?? []));
+    this.writes.editBody(id, change.text);
+    this.project();
+  }
+
+  /** Nothing more is coming for this note, so the cache's list stands. */
+  private todosSettled(path: string) {
+    if (this.disposed || this.writes.bodyBusy(path) || !this.todoOverlay.delete(path)) return;
+    this.schedule();
+  }
+
   private frontmatterOf(path: string): Patch {
     const file = this.app.vault.getFileByPath(path);
     const fm = file ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined;
@@ -450,6 +506,7 @@ export class TaskmasterStore {
   private writeFailed(path: string, e: unknown) {
     if (this.disposed) return;
     const msg = `Could not save: ${String(e)}`;
+    this.todoOverlay.delete(path);
     this.fileWarnings.push({ path, msg });
     this.recompute(`⚠ ${path}: ${msg}`);
   }
@@ -475,6 +532,7 @@ export class TaskmasterStore {
       metadataCache,
       metadataCache.on('changed', (file, _data, cache) => {
         this.writes.echoed(file.path, cache?.frontmatter);
+        if (!this.writes.bodyBusy(file.path)) this.todoOverlay.delete(file.path);
         if (file.path.startsWith(this.folder)) this.schedule();
       }),
     );
@@ -483,6 +541,7 @@ export class TaskmasterStore {
       metadataCache,
       metadataCache.on('deleted', file => {
         this.writes.drop(file.path);
+        this.todoOverlay.delete(file.path);
         this.schedule();
       }),
     );
@@ -497,6 +556,7 @@ export class TaskmasterStore {
         this.writes.rename(oldPath, file.path);
         this.aliases.push([oldPath, file.path]);
         this.aliases.splice(0, this.aliases.length - ALIASES);
+        this.todoOverlay = new Map([...this.todoOverlay].map(([p, t]) => [movedPath(p, oldPath, file.path), t]));
         for (const s of this.stack) s.moved?.(oldPath, file.path);
         this.undoing?.moved?.(oldPath, file.path);
         if (keyed() !== before) this.saveState();
@@ -518,6 +578,7 @@ export class TaskmasterStore {
     const { items, warnings, pending } = projectNotes(this.app, this.folder, path => this.writes.overlay(path), {
       alias: link => this.aliasOf(link),
     });
+    for (const [path, todos] of this.todoOverlay) if (items[path]) items[path].todos = todos;
     this.st.items = inOrder(items, this.st.order);
     this.st.today = this.today();
     this.noteWarnings = warnings;

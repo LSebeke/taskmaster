@@ -1,3 +1,4 @@
+import type { TFile } from 'obsidian';
 import type { StoreApp } from './ports';
 
 /** Frontmatter keys to set. Undefined deletes the key. */
@@ -13,7 +14,10 @@ interface Slot {
   sent: Patch;
   /** Writes the cache has yet to report. */
   echoes: number;
+  /** Body edits not yet run. Stay here until the write takes them, so a read can see them. */
   body: BodyEdit[];
+  /** Body writes under way. */
+  bodyWrites: number;
   timer: ReturnType<typeof setTimeout> | null;
   /** Writes to one file run in order. */
   busy: Promise<void>;
@@ -32,6 +36,8 @@ export class NoteWriter {
     private app: StoreApp,
     private debounceMs: number,
     private failed: (path: string, error: unknown) => void,
+    /** A body write left the note as it was, so the cache will not report it. */
+    private unchanged: (path: string) => void,
   ) {}
 
   overlay(path: string): Patch | undefined {
@@ -54,6 +60,17 @@ export class NoteWriter {
     const s = this.slot(path);
     Object.assign(s.sent, frontmatter);
     s.echoes++;
+  }
+
+  /** Body edits are waiting for or in a write. */
+  bodyBusy(path: string): boolean {
+    const s = this.slots.get(path);
+    return !!s && (s.body.length > 0 || s.bodyWrites > 0);
+  }
+
+  /** What a note's text will be once waiting body edits land. */
+  withBodyEdits(path: string, text: string): string {
+    return (this.slots.get(path)?.body ?? []).reduce((t, edit) => edit(t), text);
   }
 
   /** The cache reported this note. Values it confirms stop shadowing it. */
@@ -90,7 +107,7 @@ export class NoteWriter {
   private slot(path: string): Slot {
     let s = this.slots.get(path);
     if (!s) {
-      s = { path, pending: {}, sent: {}, echoes: 0, body: [], timer: null, busy: Promise.resolve() };
+      s = { path, pending: {}, sent: {}, echoes: 0, body: [], bodyWrites: 0, timer: null, busy: Promise.resolve() };
       this.slots.set(path, s);
     }
     return s;
@@ -110,9 +127,8 @@ export class NoteWriter {
   }
 
   private async write(s: Slot) {
-    const { pending: patch, body } = s;
+    const { pending: patch } = s;
     s.pending = {};
-    s.body = [];
     const keys = Object.keys(patch);
     Object.assign(s.sent, patch);
     const forget = () => {
@@ -133,20 +149,33 @@ export class NoteWriter {
           else forget();
         });
       }
-      if (body.length) {
-        await this.app.vault.process(file, text => {
-          const next = body.reduce((t, edit) => edit(t), text);
-          if (next !== text) s.echoes++;
-          return next;
-        });
-      }
+      if (s.body.length) await this.writeBody(s, file);
     } catch (e) {
       forget();
+      s.body = [];
       this.tidy(s);
       this.failed(s.path, e);
       return;
     }
     this.tidy(s);
+  }
+
+  private async writeBody(s: Slot, file: TFile) {
+    let edits: BodyEdit[] | null = null;
+    let changed = false;
+    s.bodyWrites++;
+    try {
+      await this.app.vault.process(file, text => {
+        edits ??= s.body.splice(0);
+        const next = edits.reduce((t, edit) => edit(t), text);
+        changed = next !== text;
+        if (changed) s.echoes++;
+        return next;
+      });
+    } finally {
+      s.bodyWrites--;
+    }
+    if (!changed) this.unchanged(s.path);
   }
 
   private tidy(s: Slot) {
