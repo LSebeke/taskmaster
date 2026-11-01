@@ -4,3 +4,4 @@ main.js
 *.map
 .DS_Store
 .obsidian/
+dev/.out/

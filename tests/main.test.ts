@@ -2,11 +2,21 @@ import { describe, expect, it, vi } from 'vitest';
 import { FakeObsidian } from './store/fake-obsidian';
 
 vi.mock('obsidian', () => ({
+  ItemView: class {},
+  Scope: class {},
   Plugin: class {
     unloaders: (() => void)[] = [];
+    views: string[] = [];
+    commands: { id: string; callback(): void }[] = [];
     constructor(public app: unknown) {}
     register(cb: () => void) {
       this.unloaders.push(cb);
+    }
+    registerView(type: string) {
+      this.views.push(type);
+    }
+    addCommand(c: { id: string; callback(): void }) {
+      this.commands.push(c);
     }
   },
 }));
@@ -16,9 +26,11 @@ const { default: TaskmasterPlugin } = await import('../src/main');
 const setup = () => {
   const o = new FakeObsidian();
   let ready: () => void = () => {};
-  const app = { ...o.app, workspace: { onLayoutReady: (cb: () => void) => (ready = cb) } };
+  const leaf = { setViewState: vi.fn(async () => {}) };
+  const open = { getLeavesOfType: vi.fn((): unknown[] => []), getLeaf: vi.fn(() => leaf), revealLeaf: vi.fn(async () => {}) };
+  const app = { ...o.app, workspace: { ...open, onLayoutReady: (cb: () => void) => (ready = cb) } };
   const plugin = new (TaskmasterPlugin as unknown as new (app: unknown) => InstanceType<typeof TaskmasterPlugin>)(app);
-  return { o, plugin, ready: () => ready() };
+  return { o, plugin, leaf, open, ready: () => ready() };
 };
 
 describe('plugin load', () => {
@@ -30,6 +42,28 @@ describe('plugin load', () => {
     expect(files).not.toHaveBeenCalled();
     expect(o.reads).toEqual([]);
     expect(plugin.store).toBeUndefined();
+  });
+
+  it('registers the view and an open command during onload', async () => {
+    const { plugin } = setup();
+    await plugin.onload();
+    const p = plugin as unknown as { views: string[]; commands: { id: string }[] };
+    expect(p.views).toEqual(['taskmaster']);
+    expect(p.commands.map(c => c.id)).toEqual(['open']);
+  });
+
+  it('opens one tab, and reuses it afterwards', async () => {
+    const { plugin, leaf, open } = setup();
+    await plugin.onload();
+    const run = (plugin as unknown as { commands: { callback(): void }[] }).commands[0].callback;
+    run();
+    await vi.waitFor(() => expect(open.revealLeaf).toHaveBeenCalledWith(leaf));
+    expect(leaf.setViewState).toHaveBeenCalledWith({ type: 'taskmaster', active: true });
+    expect(open.getLeaf).toHaveBeenCalledTimes(1);
+    open.getLeavesOfType.mockReturnValue([leaf]);
+    run();
+    await vi.waitFor(() => expect(open.revealLeaf).toHaveBeenCalledTimes(2));
+    expect(open.getLeaf).toHaveBeenCalledTimes(1);
   });
 
   it('loads the store once the layout is ready, and stops it on unload', async () => {
