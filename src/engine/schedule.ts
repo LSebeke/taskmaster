@@ -1,4 +1,4 @@
-import { isWork, weekOf, workDays } from './calendar';
+import { isWork, weekHours, weekOf, workDays } from './calendar';
 import { effDeps, isDraft, kids, rootOf } from './graph';
 import type { Day, Item, ScheduleOptions, State, WeekLoad } from './types';
 
@@ -80,7 +80,6 @@ function simulate(st: State, C: Compiled, rel: Record<string, Day>): Simulation 
   const s = st.settings;
   const today = st.today;
   const n = C.T.length;
-  const perDay = s.weekly / 5;
   const left = new Float64Array(n);
   const fin = new Int32Array(n).fill(-1);
   const first = new Int32Array(n).fill(-1);
@@ -179,7 +178,7 @@ function simulate(st: State, C: Compiled, rel: Record<string, Day>): Simulation 
       continue;
     }
 
-    let cap = perDay;
+    let cap = weekHours(weekOf(d), s) / 5;
     for (const p of reserved) {
       if (fin[p.i] < 0 && d >= p.a) {
         const h = d >= p.b ? left[p.i] : Math.min(p.burn, left[p.i]);

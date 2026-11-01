@@ -54,6 +54,8 @@ export interface PlanHistoryEntry {
 
 export interface Settings {
   weekly: number;
+  /** Hours for one full week, keyed by `weekOf`. Replaces `weekly` for that week. */
+  weekCap?: Record<number, number>;
   staleDays: number;
   holidays: Day[];
 }

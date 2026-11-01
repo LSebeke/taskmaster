@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { analyze, dayOf as D } from '../../src/engine';
+import { analyze, dayOf as D, weekOf } from '../../src/engine';
 import { TaskmasterStore } from '../../src/store';
 import { FakeObsidian } from './fake-obsidian';
 
@@ -22,7 +22,7 @@ describe('state.json', () => {
   it('has safe defaults when missing', async () => {
     task('a', 6);
     const store = await boot();
-    expect(store.state.settings).toEqual({ weekly: 30, staleDays: 7, holidays: [] });
+    expect(store.state.settings).toEqual({ weekly: 30, weekCap: {}, staleDays: 7, holidays: [] });
     expect(store.state.plan).toEqual({});
     expect(store.state.planHistory).toEqual([]);
     expect(store.state.tiers).toEqual([[p('a')]]);
@@ -50,7 +50,7 @@ describe('state.json', () => {
     expect(state.tiers).toEqual([[p('a')], [p('b')]]);
     expect(state.plan[p('a')]).toEqual({ start: D('2026-11-02'), end: D('2026-11-03'), hours: 12 });
     expect(state.planHistory).toEqual([{ day: D('2026-10-01'), ids: [p('a')], before: { [p('a')]: undefined } }]);
-    expect(state.settings).toEqual({ weekly: 40, staleDays: 7, holidays: [D('2026-12-24')] });
+    expect(state.settings).toEqual({ weekly: 40, weekCap: {}, staleDays: 7, holidays: [D('2026-12-24')] });
   });
 
   it('drives the scheduler: a 12h ranked above b 12h, a ends Tue 3 Nov, b Thu 5 Nov', async () => {
@@ -137,5 +137,25 @@ describe('levels against the notes', () => {
     o.addUnindexed('Projects/b.md');
     o.stateJson = JSON.stringify({ tiers: [[p('b')], [p('a')]] });
     expect((await boot()).state.tiers).toEqual([[p('b')], [p('a')]]);
+  });
+});
+
+describe('per-week capacity in state.json', () => {
+  const week = weekOf(D('2026-12-07')); // ISO 2026-W50
+
+  it('reads overrides by ISO week', async () => {
+    task('a', 6);
+    o.stateJson = JSON.stringify({ weekCapacity: { '2026-W50': 50, '2026-W51': 0 } });
+    const store = await boot();
+    expect(store.state.settings.weekCap).toEqual({ [week]: 50, [week + 1]: 0 });
+    expect(store.warnings).toEqual([]);
+  });
+
+  it.each([['2026-W54', 40], ['W50', 40], ['2026-W50', -1], ['2026-W50', 'lots']])('skips %s = %s', async (key, hours) => {
+    task('a', 6);
+    o.stateJson = JSON.stringify({ weekCapacity: { [key]: hours } });
+    const store = await boot();
+    expect(store.state.settings.weekCap).toEqual({});
+    expect(store.warnings).toHaveLength(1);
   });
 });

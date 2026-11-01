@@ -1,13 +1,18 @@
 import type { Day, PlanEntry, PlanHistoryEntry, State } from '../engine';
+import { weekOfIsoKey } from '../engine';
 import type { StoreWarning } from './ports';
 import { parseDay } from './project';
 
 export const STATE_PATH = '_taskmaster/state.json';
 
 /** The part of State that lives in state.json. Dates are ISO strings on disk. */
-export type StateFile = Pick<State, 'tiers' | 'plan' | 'planHistory'> & { weekly: number; holidays: Day[] };
+export type StateFile = Pick<State, 'tiers' | 'plan' | 'planHistory'> & {
+  weekly: number;
+  weekCap: Record<number, number>;
+  holidays: Day[];
+};
 
-export const defaultStateFile = (): StateFile => ({ tiers: [], plan: {}, planHistory: [], weekly: 30, holidays: [] });
+export const defaultStateFile = (): StateFile => ({ tiers: [], plan: {}, planHistory: [], weekly: 30, weekCap: {}, holidays: [] });
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -44,7 +49,7 @@ export function parseStateFile(raw: string): { file: StateFile; warnings: StoreW
     return { file, warnings };
   }
 
-  const { tiers, plan, planHistory, capacity, holidays } = root;
+  const { tiers, plan, planHistory, capacity, weekCapacity, holidays } = root;
 
   if (Array.isArray(tiers)) {
     const seen = new Set<string>();
@@ -82,6 +87,14 @@ export function parseStateFile(raw: string): { file: StateFile; warnings: StoreW
 
   if (typeof capacity === 'number' && Number.isFinite(capacity) && capacity > 0) file.weekly = capacity;
   else if (capacity !== undefined) warn(`Expected weekly hours, got ${JSON.stringify(capacity)}`, 'capacity');
+
+  if (isObject(weekCapacity)) {
+    for (const [key, hours] of Object.entries(weekCapacity)) {
+      const week = weekOfIsoKey(key);
+      if (week !== undefined && typeof hours === 'number' && Number.isFinite(hours) && hours >= 0) file.weekCap[week] = hours;
+      else warn(`Skipped ${key}`, 'weekCapacity');
+    }
+  } else if (weekCapacity !== undefined) warn('Expected an object', 'weekCapacity');
 
   if (Array.isArray(holidays)) {
     for (const h of holidays) {

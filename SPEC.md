@@ -30,7 +30,7 @@ Reference implementation of behaviour and UI: `prototype/taskmaster-prototype.ht
 | **Plan** | Frozen snapshot of dates and hours per item. Changes only through Update plan |
 | **Burn** | Hours per day flowing into a task |
 | **Tier** | Set of tasks with equal priority |
-| **Capacity** | Weekly hours, spread evenly across working days |
+| **Capacity** | Weekly hours, spread evenly across working days. A single week can override it |
 
 Whether an item is a parent, task or draft is derived, never stored. Milestone and External are stored kinds. Untimed work you just want to tick off is a to-do on a task.
 
@@ -69,7 +69,7 @@ Rules:
 - External items use `tm-pin-start` and `tm-pin-end` (both required) and live in `<projects folder>/_external/`. They have no `tm-parent`.
 - The projects folder is a setting, default `Projects/`.
 - Linked notes are `tm-notes` links. Plain links elsewhere also work: the rail shows `tm-notes` and backlinks.
-- Priority tiers, plans, plan history, capacity and holidays live in `_taskmaster/state.json` in the vault. They are cross-item, and rewriting many notes on a drag would be slow and noisy in sync. Write atomically.
+- Priority tiers, plans, plan history, capacity, per-week capacity overrides (`"weekCapacity": { "2026-W50": 50 }`, ISO weeks) and holidays live in `_taskmaster/state.json` in the vault. They are cross-item, and rewriting many notes on a drag would be slow and noisy in sync. Write atomically.
 - Plan entries are keyed by note path and rewritten on rename.
 
 ## Scheduler
@@ -87,7 +87,7 @@ Each task's start and end are independently **Auto** or **Pinned**.
 
 Each working day:
 
-1. Capacity = weekly hours / 5. Mon to Fri, minus holidays.
+1. Capacity = that week's hours / 5. Mon to Fri, minus holidays. A week's hours are its override, else the default weekly hours. An override means a full week: 40h in a week with one holiday gives 32h. An override of 0 is allowed.
 2. Take reserved burn for both-pinned tasks. A negative remainder is overbooked and clamps to 0.
 3. Pass remaining capacity to released tasks, highest tier first. A tier shares equally, with hours a task cannot use redistributed inside the tier. The tier takes everything before the next tier sees any.
 4. A finished task releases successors the same day, so leftover hours keep flowing.
@@ -176,7 +176,7 @@ Layout: top bar, optional legend, hierarchy column, canvas timeline, load strip 
 
 **Top bar, left to right:** Up, breadcrumb, `+ Project`, `+ Item`, Plan visibility, Forecast visibility, zoom (Q, M, W), axis (Date, CW), View menu, Update plan, Undo.
 
-**Status bar:** what the last change did to the forecast (how many tasks moved, the largest moves), conflict count, weekly capacity. Hovering a legal drop target shows the consequence here. Capacity is editable in place, and also in settings with holidays, stale days and the projects folder.
+**Status bar:** what the last change did to the forecast (how many tasks moved, the largest moves), conflict count, weekly capacity. Hovering a legal drop target shows the consequence here. Capacity is editable in place, and also in settings with per-week overrides, holidays, stale days and the projects folder.
 
 **Keyboard and mouse:** N adds an item. Ctrl+Z undoes. Ctrl+wheel zooms around the cursor. Esc closes an open form or dialog, then clears selection, then goes up.
 
@@ -212,7 +212,7 @@ Dragging recalculates live. Only forecast bars of unfinished tasks and external 
 
 **External section:** a labelled section at the bottom of the hierarchy and chart, sorted by start, with neutral-coloured bars taller than task bars. In a focused view it lists only items referenced by what is shown. Dependency links are drawn to their dependents. Selecting one shades its dates across the whole chart. Bars drag to change dates. The eye toggle and the View menu hide them.
 
-**Load strip:** stacked weekly hours per project, capacity line, marker on overbooked weeks.
+**Load strip:** stacked weekly hours per project, capacity line, marker on overbooked weeks. The line steps with holidays and overrides, and overridden weeks are labelled. Clicking a week edits its hours, and clearing the field removes the override.
 
 **Rail, overview** (nothing selected, or a parent selected): status, hours left, done vs plan, spent vs budget, projected total, `+ Add`, Focus, Update plan, unallocated-budget warning, plan-gap warning, count of items not yet in the plan, MVP signal (projects only), estimate accuracy, linked notes, properties (name, budget, deadline, Inside), to-dos if it has any, delete, then upcoming external items, next-up list, conflicts and stale tasks. At the top level: per-project summary, then the same lists.
 
@@ -315,6 +315,10 @@ Today Mon 2 Nov 2026, 30 h/week (6 h/day), no holidays, unless stated.
 | a 12h, b 12h tied | Both end Thu 5 Nov, 3 h/day each |
 | a 12h ranked above b 12h | a ends Tue 3 Nov. b runs Wed 4 to Thu 5 Nov |
 | a 3h, then b 3h depending on a | Both end 2 Nov |
+| a 42h, override 60h for week of 2 Nov | Ends Thu 5 Nov at 12 h/day |
+| a 12h, override 0h for week of 2 Nov | Starts Mon 9 Nov, ends Tue 10 Nov |
+| a 42h, override 60h for week of 2 Nov, holiday Wed 4 Nov | Ends Fri 6 Nov. Week's capacity is 48h |
+| a 10h pinned 2 to 6 Nov, override 5h for week of 2 Nov | Overbooked conflict |
 | a 12h, start pinned Thu 5 Nov | 5 Nov to Fri 6 Nov |
 | a 12h, end pinned Fri 13 Nov | Starts Thu 12 Nov |
 | a 12h end pinned 13 Nov, tied with b 60h | a starts Tue 10 Nov (burn halves) |

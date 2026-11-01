@@ -66,8 +66,8 @@ export class TaskmasterStore {
     this.folder = folderPrefix(opts.projectsFolder ?? 'Projects/');
     this.debounceMs = opts.debounceMs ?? 100;
     this.today = opts.today ?? localToday;
-    const { weekly, holidays, ...rest } = defaultStateFile();
-    this.st = { ...rest, items: {}, today: 0, settings: { weekly, holidays, staleDays: opts.staleDays ?? 7 } };
+    const { weekly, weekCap, holidays, ...rest } = defaultStateFile();
+    this.st = { ...rest, items: {}, today: 0, settings: { weekly, weekCap, holidays, staleDays: opts.staleDays ?? 7 } };
   }
 
   get state(): State {
@@ -92,9 +92,9 @@ export class TaskmasterStore {
     if (raw != null) {
       const { file, warnings } = parseStateFile(raw);
       this.fileWarnings.push(...warnings);
-      const { weekly, holidays, ...rest } = file;
+      const { weekly, weekCap, holidays, ...rest } = file;
       Object.assign(this.st, rest);
-      Object.assign(this.st.settings, { weekly, holidays });
+      Object.assign(this.st.settings, { weekly, weekCap, holidays });
     }
     this.hookEvents();
     this.recompute();

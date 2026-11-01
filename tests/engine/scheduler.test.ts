@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyze, dayOf, isWork, iso, weekOf, weekStart, workDays } from '../../src/engine';
+import { analyze, dayOf, isWork, iso, isoWeekKey, weekCapacity, weekOfIsoKey, weekOf, weekStart, workDays } from '../../src/engine';
 import { D, day, state, task } from './helpers';
 
 describe('calendar', () => {
@@ -168,5 +168,53 @@ describe('acceptance: order and empty levels do not change the forecast', () => 
     const y = analyze(state(m(), [['a'], ['b']]));
     expect(x.by.b.end).toBe(y.by.b.end);
     expect(x.by.a.end).toBe(y.by.a.end);
+  });
+});
+
+describe('per-week capacity override', () => {
+  const week = weekOf(D('2026-11-02'));
+  const end = (left: number, weekCap: Record<number, number>, holidays: number[] = []) => {
+    const st = state({ a: task('a', left) }, [['a']]);
+    st.settings = { ...st.settings, weekCap, holidays };
+    return analyze(st);
+  };
+
+  it('a crunch week runs at its own daily rate', () => {
+    expect(day(end(42, { [week]: 60 }).by.a.end)).toBe('2026-11-05');
+  });
+
+  it('a zero week gets no work', () => {
+    const r = end(12, { [week]: 0 });
+    expect(day(r.by.a.start)).toBe('2026-11-09');
+    expect(day(r.by.a.end)).toBe('2026-11-10');
+  });
+
+  it('means a full week, so a holiday still costs a day', () => {
+    const s = { weekly: 30, staleDays: 7, holidays: [D('2026-11-04')], weekCap: { [week]: 60 } };
+    expect(day(end(42, s.weekCap, s.holidays).by.a.end)).toBe('2026-11-06');
+    expect(weekCapacity(week, s)).toBe(48);
+    expect(weekCapacity(week + 1, s)).toBe(30);
+  });
+
+  it('flags pinned work above a reduced week', () => {
+    const st = state({ a: task('a', 10, { pinS: D('2026-11-02'), pinE: D('2026-11-06') }) }, [['a']]);
+    st.settings = { ...st.settings, weekCap: { [week]: 5 } };
+    expect(analyze(st).conflicts.some(c => c.msg.startsWith('Overbooked'))).toBe(true);
+  });
+});
+
+describe('ISO week keys', () => {
+  it.each([
+    ['2026-11-02', '2026-W45'],
+    ['2026-12-28', '2026-W53'],
+    ['2027-01-04', '2027-W01'],
+    ['2024-12-30', '2025-W01'],
+  ])('%s is %s, both ways', (date, key) => {
+    expect(isoWeekKey(weekOf(D(date)))).toBe(key);
+    expect(weekOfIsoKey(key)).toBe(weekOf(D(date)));
+  });
+
+  it('rejects a week the year does not have', () => {
+    expect(weekOfIsoKey('2025-W53')).toBeUndefined();
   });
 });
