@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addItem,
+  newItemError,
   analyze,
   depBlocker,
   ensureTiers,
@@ -328,5 +329,53 @@ describe('acceptance: external items, structure', () => {
     const id = addItem(st, { kind: 'ext', title: 'Far', pinS: D('2028-01-01'), pinE: D('2028-01-10') });
     expect(st.tiers.flat()).not.toContain(id);
     expect(st.items[id].parent).toBeNull();
+  });
+});
+
+describe('newItemError: what a new item may not do', () => {
+  const base = () =>
+    state(
+      {
+        p: task('P', 0),
+        t: task('T', 12, { parent: 'p' }),
+        u: task('U', 12, { parent: 'p', deps: ['t'] }),
+        m: { title: 'M', parent: 'p', kind: 'ms', deps: [] },
+        x: external('X', '2026-11-02', '2026-11-03'),
+      },
+      [['t', 'u']],
+    );
+  const fresh = { ...item, title: 'New' };
+
+  it('passes a plain item, and leaves the state alone', () => {
+    const st = base();
+    const was = JSON.stringify(st);
+    expect(newItemError(st, { ...fresh, parent: 'p', deps: ['t'] })).toBeNull();
+    expect(JSON.stringify(st)).toBe(was);
+  });
+  it('refuses field errors', () => {
+    expect(newItemError(base(), { ...fresh, title: ' ' })).toMatch(/name/i);
+    expect(newItemError(base(), { kind: 'ms', title: 'M2' })).toMatch(/needs a parent/);
+  });
+  it('refuses a parent that cannot have children', () => {
+    expect(newItemError(base(), { ...fresh, parent: 'm' })).toMatch(/Milestones cannot/);
+    expect(newItemError(base(), { ...fresh, parent: 'x' })).toMatch(/External items cannot/);
+    expect(newItemError(base(), { ...fresh, parent: 'gone' })).toMatch(/gone/);
+  });
+  it('refuses a loop through the new item: its parent is depended on by what it would wait for', () => {
+    const st = base();
+    st.items.v = task('V', 6, { deps: ['t'] });
+    expect(newItemError(st, { ...fresh, parent: 't', deps: ['v'] })).toMatch(/loop/);
+  });
+  it('refuses end pin before start pin', () => {
+    expect(newItemError(base(), { ...fresh, pinS: D('2026-11-05'), pinE: D('2026-11-02') })).toMatch(/before/);
+  });
+});
+
+describe('addItem with a given id', () => {
+  it('keys the item by it: notes are keyed by path', () => {
+    const st = state({ p: task('P', 6) }, [['p']]);
+    expect(addItem(st, { ...item, title: 'C', parent: 'p', hours: 3, id: 'Projects/P/C.md' })).toBe('Projects/P/C.md');
+    expect(st.items['Projects/P/C.md'].parent).toBe('p');
+    expect(st.tiers).toEqual([['p', 'Projects/P/C.md']]);
   });
 });

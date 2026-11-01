@@ -1,4 +1,23 @@
-import { analyze, depError, editLog, iso, kids, logHours as engineLog, setLeft, setTotal as engineTotal, type Analysis, type Day, type Item, type Scope, type State } from '../engine';
+import {
+  addItem,
+  analyze,
+  depError,
+  editLog,
+  iso,
+  kids,
+  logHours as engineLog,
+  moveError,
+  moveItem,
+  removeItem,
+  setLeft,
+  setTotal as engineTotal,
+  type Analysis,
+  type Day,
+  type Item,
+  type NewItem,
+  type Scope,
+  type State,
+} from '../engine';
 
 /**
  * One user edit. Changes the state it is given, a copy, and returns the label for the status bar and
@@ -144,6 +163,55 @@ export const setWeekCapacity =
     else cap[week] = hours;
     st.settings.weekCap = cap;
     return hours == null ? 'Week override cleared' : `Week override ${num(hours)}h`;
+  };
+
+/** The state half of a new note. The note may already be in the projection, and a parent must see it arrive. */
+export const addEdit =
+  (n: NewItem & { id: string }): Edit =>
+  st => {
+    delete st.items[n.id];
+    st.tiers = st.tiers.map(t => t.filter(x => x !== n.id));
+    addItem(st, n);
+    return `Added ${n.title}`;
+  };
+
+/** The state half of a move, once the note is in place. Siblings keep the order the drop gave them. */
+export const moveEdit =
+  (id: string, parent: string | null, before: string | null = null): Edit =>
+  st => {
+    if (!st.items[id] || moveError(st, id, parent)) return;
+    moveItem(st, id, parent, before);
+    const siblings = kids(st)[parent ?? ''] ?? [];
+    st.order = [...(st.order ?? []).filter(x => st.items[x] && !siblings.includes(x)), ...siblings];
+    return `Moved ${st.items[id].title}`;
+  };
+
+export const removeEdit =
+  (id: string): Edit =>
+  st => {
+    const it = st.items[id];
+    if (!it) return;
+    removeItem(st, id);
+    st.order = st.order?.filter(x => st.items[x]);
+    return `Deleted ${it.title}`;
+  };
+
+export const linkNote =
+  (id: string, path: string): Edit =>
+  st => {
+    const it = st.items[id];
+    if (!it || it.notes?.includes(path)) return;
+    (it.notes ||= []).push(path);
+    return `Linked ${path.split('/').pop()!.replace(/\.md$/, '')} to ${it.title}`;
+  };
+
+export const unlinkNote =
+  (id: string, path: string): Edit =>
+  st => {
+    const it = st.items[id];
+    if (!it?.notes?.includes(path)) return;
+    it.notes = it.notes.filter(n => n !== path);
+    return `Unlinked ${path.split('/').pop()!.replace(/\.md$/, '')} from ${it.title}`;
   };
 
 /** Logged but not started. Cheap, so `analyze` only runs when something qualifies. */

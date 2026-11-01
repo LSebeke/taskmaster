@@ -10,7 +10,7 @@ export const STATE_TMP = `${STATE_PATH}.tmp`;
 export const STATE_BAD = `${STATE_PATH}.bad`;
 
 /** The part of State that lives in state.json. Dates are ISO strings on disk. */
-export type StateFile = Pick<State, 'tiers' | 'plan' | 'planHistory'> & {
+export type StateFile = Pick<State, 'tiers' | 'plan' | 'planHistory' | 'order'> & {
   weekly: number;
   weekCap: Record<number, number>;
   holidays: Day[];
@@ -30,6 +30,7 @@ export function serializeState(st: State): string {
       capacity: weekly,
       weekCapacity: Object.fromEntries(Object.entries(weekCap ?? {}).map(([w, h]) => [isoWeekKey(Number(w)), h])),
       holidays: holidays.map(iso),
+      ...(st.order?.length ? { order: st.order } : {}),
     },
     null,
     2,
@@ -91,7 +92,7 @@ export function parseStateFile(raw: string): { file: StateFile; warnings: StoreW
     return { file, warnings, broken: true };
   }
 
-  const { tiers, plan, planHistory, capacity, weekCapacity, holidays } = root;
+  const { tiers, plan, planHistory, capacity, weekCapacity, holidays, order } = root;
 
   if (Array.isArray(tiers)) {
     const seen = new Set<string>();
@@ -145,6 +146,9 @@ export function parseStateFile(raw: string): { file: StateFile; warnings: StoreW
       else file.holidays.push(d);
     }
   } else if (holidays !== undefined) warn('Expected a list of dates', 'holidays');
+
+  if (Array.isArray(order)) file.order = order.filter(id => typeof id === 'string');
+  else if (order !== undefined) warn('Expected a list', 'order');
 
   return { file, warnings };
 }

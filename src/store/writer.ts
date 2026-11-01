@@ -49,6 +49,13 @@ export class NoteWriter {
     this.arm(path);
   }
 
+  /** A note just written with these values, which the cache has yet to report. */
+  seed(path: string, frontmatter: Patch) {
+    const s = this.slot(path);
+    Object.assign(s.sent, frontmatter);
+    s.echoes++;
+  }
+
   /** The cache reported this note. Values it confirms stop shadowing it. */
   echoed(path: string, frontmatter: Patch | undefined) {
     const s = this.slots.get(path);

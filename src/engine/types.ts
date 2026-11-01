@@ -70,6 +70,8 @@ export interface State {
   planHistory?: PlanHistoryEntry[];
   /** Counter for generated ids. */
   seq?: number;
+  /** Sibling order set by hand. Whatever is not listed follows, by path. */
+  order?: string[];
 }
 
 /** Children per item. Top-level items sit under ''. */

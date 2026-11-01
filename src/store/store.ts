@@ -1,15 +1,18 @@
 import type { EventRef } from 'obsidian';
-import { dayOf, ensureTiers, type Day, type State, type Todo } from '../engine';
+import { dayOf, ensureTiers, type Day, type Item, type NewItem, type State, type Todo } from '../engine';
 import { awaitsStart, recordDates, type Edit } from './edits';
 import { notePatches } from './patch';
-import type { StoreApp, StoreWarning } from './ports';
-import { projectNotes } from './project';
+import { movedPath, type StoreApp, type StoreWarning } from './ports';
+import { inOrder, projectNotes } from './project';
 import { defaultStateFile, parseStateFile, serializeState, STATE_BAD, STATE_PATH, STATE_TMP, writeStateAtomically } from './state-file';
+import { Structure, type Done } from './structure';
 import { NoteWriter, type Patch } from './writer';
 
 const CHECKBOX = /^\s*(?:[-*+]|\d+[.)])\s+\[.\]\s*/;
 /** How often to look for a new day while nothing else happens. */
 const CLOCK_MS = 60_000;
+/** Renames remembered for links the cache has yet to catch up with. */
+const ALIASES = 32;
 
 export interface StoreOptions {
   /** Setting, default `Projects/`. */
@@ -50,13 +53,14 @@ interface StateParts {
   tiers: State['tiers'];
   plan: State['plan'];
   planHistory: State['planHistory'];
+  order: State['order'];
   weekly: number;
   weekCap: State['settings']['weekCap'];
   holidays: Day[];
 }
 
-const partsOf = ({ tiers, plan, planHistory, settings: { weekly, weekCap, holidays } }: State): StateParts =>
-  structuredClone({ tiers, plan, planHistory, weekly, weekCap, holidays });
+const partsOf = ({ tiers, plan, planHistory, order, settings: { weekly, weekCap, holidays } }: State): StateParts =>
+  structuredClone({ tiers, plan, planHistory, order, weekly, weekCap, holidays });
 
 function assignParts(st: State, p: Partial<StateParts>) {
   const { weekly, weekCap, holidays, ...rest } = p;
@@ -74,15 +78,32 @@ function changedParts(before: StateParts, after: StateParts): Partial<StateParts
 }
 
 /** Plan entries, history and levels are keyed by note path. A folder rename moves everything under it. */
-function rewritePaths(p: Pick<Partial<StateParts>, 'tiers' | 'plan' | 'planHistory'>, from: string, to: string) {
-  const move = (x: string) => (x === from ? to : x.startsWith(`${from}/`) ? to + x.slice(from.length) : x);
+function rewritePaths(p: Pick<Partial<StateParts>, 'tiers' | 'plan' | 'planHistory' | 'order'>, from: string, to: string) {
+  const move = (x: string) => movedPath(x, from, to);
   const moveKeys = <T>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [move(k), v]));
   if (p.tiers) p.tiers = p.tiers.map(level => level.map(move));
   if (p.plan) p.plan = moveKeys(p.plan);
+  if (p.order) p.order = p.order.map(move);
   for (const h of p.planHistory ?? []) {
     h.ids = h.ids.map(move);
     h.before = moveKeys(h.before);
   }
+}
+
+/** Items hold paths too, and stay usable between a rename and the next projection. Returns whether any moved. */
+function rekeyItems(st: State, from: string, to: string): boolean {
+  const move = (x: string) => movedPath(x, from, to);
+  const entries = Object.entries(st.items);
+  if (!entries.some(([id]) => move(id) !== id)) return false;
+  st.items = Object.fromEntries(
+    entries.map(([id, it]): [string, Item] => [id, it]).map(([id, it]) => {
+      it.parent = it.parent && move(it.parent);
+      it.deps = it.deps?.map(move);
+      it.notes = it.notes?.map(move);
+      return [move(id), it];
+    }),
+  );
+  return true;
 }
 
 /**
@@ -114,6 +135,16 @@ export class TaskmasterStore {
   /** Latest projection saw a note the cache has not reached. */
   private pending = false;
   private stack: UndoStep[] = [];
+  /** The step being undone: renames it causes still reach the steps it has yet to run. */
+  private undoing: UndoStep | null = null;
+  /** File work and undo run one at a time, each from the paths the last one left. */
+  private queue: Promise<unknown> = Promise.resolve();
+  /** While above 0, changes wait for the end of the file work behind them. */
+  private hush = 0;
+  /** Renames, oldest first. */
+  private aliases: [string, string][] = [];
+  private moveListeners = new Set<(from: string, to: string) => void>();
+  private structure: Structure;
   /** What listeners last saw. A cache event that changes nothing stays silent, which also absorbs our own writes. */
   private seen = '';
   private disposed = false;
@@ -129,6 +160,23 @@ export class TaskmasterStore {
     this.writes = new NoteWriter(app, this.writeMs, (path, e) => this.writeFailed(path, e));
     const { weekly, weekCap, holidays, ...rest } = defaultStateFile();
     this.st = { ...rest, items: {}, today: 0, settings: { weekly, weekCap, holidays, staleDays: opts.staleDays ?? 7 } };
+    const store = this;
+    this.structure = new Structure({
+      app,
+      get state() {
+        return store.st;
+      },
+      root: this.folder.replace(/\/$/, ''),
+      serial: fn => this.serial(fn),
+      atomic: (label, fn) => this.atomic(label, fn),
+      apply: edit => this.apply(edit),
+      record: step => this.record(step),
+      follow: path => this.follow(path),
+      seed: (path, fm) => this.writes.seed(path, fm),
+      drop: path => this.writes.drop(path),
+      flushNotes: () => this.writes.flush(),
+      frontmatterOf: path => this.frontmatterOf(path),
+    });
   }
 
   get state(): State {
@@ -143,6 +191,36 @@ export class TaskmasterStore {
   /** Label of the edit Undo would revert, or null. */
   get undoLabel(): string | null {
     return this.stack.at(-1)?.label ?? null;
+  }
+
+  /** Adds an item: its note, and a move of the parent's note if this is its first child. */
+  create(n: NewItem): Promise<Done> {
+    return this.structure.create(n);
+  }
+
+  /** Moves an item under a parent (null: top level), before a sibling (null: last). */
+  move(id: string, parent: string | null, before: string | null = null): Promise<Done> {
+    return this.structure.move(id, parent, before);
+  }
+
+  rename(id: string, title: string): Promise<Done> {
+    return this.structure.rename(id, title);
+  }
+
+  /** Deletes an item and everything inside it. */
+  remove(id: string): Promise<Done> {
+    return this.structure.remove(id);
+  }
+
+  /** Creates a note and links it to an item. */
+  linkNew(id: string, title: string): Promise<Done> {
+    return this.structure.linkNew(id, title);
+  }
+
+  /** Called on every rename, before listeners hear of any change it brings. Returns the unsubscribe. */
+  onMove(listener: (from: string, to: string) => void): () => void {
+    this.moveListeners.add(listener);
+    return () => this.moveListeners.delete(listener);
   }
 
   /** Called after every recompute that changed something. Returns the unsubscribe. */
@@ -194,11 +272,14 @@ export class TaskmasterStore {
   }
 
   /** Reverts the last edit. Resolves to its label, or null with nothing to undo. */
-  async undo(): Promise<string | null> {
-    const step = this.stack.pop();
-    if (!step) return null;
-    await step.undo();
-    return step.label;
+  undo(): Promise<string | null> {
+    return this.serial(async () => {
+      const step = this.stack.pop();
+      if (!step) return null;
+      const failed = await this.reverse(step);
+      this.recompute(failed ? `⚠ Undo stopped: ${failed}` : `Undid: ${step.label}`);
+      return step.label;
+    });
   }
 
   /** Adds a step for work `apply` cannot see: creating, renaming or trashing files. */
@@ -209,16 +290,20 @@ export class TaskmasterStore {
   /** Everything `fn` applies or records becomes one undo step. */
   async group(label: string, fn: () => void | Promise<void>): Promise<void> {
     const mark = this.stack.length;
-    await fn();
-    const steps = this.stack.splice(mark);
-    if (!steps.length) return;
-    this.stack.push({
-      label,
-      undo: async () => {
-        for (const s of steps.reverse()) await s.undo();
-      },
-      moved: (from, to) => steps.forEach(s => s.moved?.(from, to)),
-    });
+    try {
+      await fn();
+    } finally {
+      const steps = this.stack.splice(mark);
+      if (steps.length) {
+        this.stack.push({
+          label,
+          undo: async () => {
+            while (steps.length) await steps.pop()!.undo();
+          },
+          moved: (from, to) => steps.forEach(s => s.moved?.(from, to)),
+        });
+      }
+    }
   }
 
   /** Rewrites a note's body through `vault.process`, in the same debounced queue as frontmatter. */
@@ -256,6 +341,59 @@ export class TaskmasterStore {
     this.unhook.forEach(off => off());
     this.unhook = [];
     this.listeners.clear();
+  }
+
+  private serial<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(fn);
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  /** One undo step, one change for listeners. If `fn` fails, what it did is undone and the reason returned. */
+  private async atomic(label: string, fn: () => Promise<void>): Promise<string | null> {
+    const mark = this.stack.length;
+    let failed: string | null = null;
+    this.hush++;
+    try {
+      await this.group(label, fn);
+    } catch (e) {
+      failed = String(e);
+      if (this.stack.length > mark) await this.reverse(this.stack.pop()!);
+    } finally {
+      this.hush--;
+    }
+    this.recompute(failed ? `⚠ ${label}: ${failed}` : label);
+    return failed;
+  }
+
+  /** Runs one undo step with listeners held back. Returns what went wrong, if anything. */
+  private async reverse(step: UndoStep): Promise<string | null> {
+    this.undoing = step;
+    this.hush++;
+    try {
+      await step.undo();
+      return null;
+    } catch (e) {
+      this.fileWarnings.push({ path: step.label, msg: `Could not undo: ${String(e)}` });
+      return String(e);
+    } finally {
+      this.hush--;
+      this.undoing = null;
+    }
+  }
+
+  private follow(path: string): string {
+    return this.aliases.reduce((p, [from, to]) => movedPath(p, from, to), path);
+  }
+
+  /** Links name a note by path or by bare title. Only asked about links the cache cannot resolve. */
+  private aliasOf(linkpath: string): string | null {
+    let path = `${linkpath}.md`;
+    for (const [from, to] of this.aliases) {
+      if (path === `${from.split('/').pop()}`) path = to;
+      else path = movedPath(path, from, to);
+    }
+    return this.app.vault.getFileByPath(path) ? path : null;
   }
 
   private async readStateFile(): Promise<string | null> {
@@ -303,8 +441,7 @@ export class TaskmasterStore {
         this.recompute(`Undid: ${label}`);
       },
       moved: (from, to) => {
-        const move = (p: string) => (p === from || p.startsWith(`${from}/`) ? to + p.slice(from.length) : p);
-        held = new Map([...held].map(([p, patch]) => [move(p), patch]));
+        held = new Map([...held].map(([p, patch]) => [movedPath(p, from, to), patch]));
         rewritePaths(parts, from, to);
       },
     };
@@ -356,9 +493,14 @@ export class TaskmasterStore {
         const keyed = () => JSON.stringify([this.st.tiers, this.st.plan, this.st.planHistory]);
         const before = keyed();
         rewritePaths(this.st, oldPath, file.path);
+        const items = rekeyItems(this.st, oldPath, file.path);
         this.writes.rename(oldPath, file.path);
+        this.aliases.push([oldPath, file.path]);
+        this.aliases.splice(0, this.aliases.length - ALIASES);
         for (const s of this.stack) s.moved?.(oldPath, file.path);
+        this.undoing?.moved?.(oldPath, file.path);
         if (keyed() !== before) this.saveState();
+        if (items) for (const l of this.moveListeners) l(oldPath, file.path);
         this.schedule();
       }),
     );
@@ -373,8 +515,10 @@ export class TaskmasterStore {
   }
 
   private project() {
-    const { items, warnings, pending } = projectNotes(this.app, this.folder, path => this.writes.overlay(path));
-    this.st.items = items;
+    const { items, warnings, pending } = projectNotes(this.app, this.folder, path => this.writes.overlay(path), {
+      alias: link => this.aliasOf(link),
+    });
+    this.st.items = inOrder(items, this.st.order);
     this.st.today = this.today();
     this.noteWarnings = warnings;
     this.pending = pending;
@@ -388,9 +532,10 @@ export class TaskmasterStore {
   }
 
   private publish(label?: string) {
+    if (this.hush) return;
     this.recordDatesSoon();
-    const { items, tiers, plan, planHistory, today, settings } = this.st;
-    const now = JSON.stringify([items, tiers, plan, planHistory, today, settings, this.warnings]);
+    const { items, tiers, plan, planHistory, order, today, settings } = this.st;
+    const now = JSON.stringify([items, tiers, plan, planHistory, order, today, settings, this.warnings]);
     if (now === this.seen) return;
     this.seen = now;
     for (const l of this.listeners) l(this.st, label);

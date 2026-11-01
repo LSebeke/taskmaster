@@ -42,6 +42,22 @@ function patchLinks(app: StoreApp, id: string, raw: unknown, before: string[], a
   return [...kept, ...added];
 }
 
+const TYPES = { item: 'item', ms: 'milestone', ext: 'external' };
+
+/** Frontmatter of a note that does not exist yet. */
+export function noteFields(app: StoreApp, id: string, it: Item): Patch {
+  const links = (to: string[] | undefined) => (to?.length ? patchLinks(app, id, null, [], to) : undefined);
+  const est = it.est ? hours(it.est) : undefined;
+  const fm: Patch = {
+    'tm-type': TYPES[it.kind],
+    'tm-parent': links(it.parent ? [it.parent] : [])?.[0],
+    'tm-deps': links(it.deps),
+    ...plainFields(it),
+    'tm-estimate': est,
+  };
+  return Object.fromEntries(Object.entries(fm).filter(([, v]) => v !== undefined));
+}
+
 const list = (x: unknown[] | undefined) => JSON.stringify(x ?? []);
 
 /** Keys that differ between two versions of an item. `fm` is what the note holds now. */

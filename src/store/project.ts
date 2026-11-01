@@ -110,10 +110,10 @@ const compact = <T extends object>(o: T): T =>
 const todosOf = (cache: CachedMetadata) =>
   (cache.listItems ?? []).filter(l => l.task !== undefined).map(l => ({ t: '', done: l.task !== ' ' }));
 
-function projectNote(app: StoreApp, file: TFile, cache: CachedMetadata, warn: Warn): Item | null {
+function projectNote(app: StoreApp, file: TFile, cache: CachedMetadata, warn: Warn, alias?: ProjectOptions['alias']): Item | null {
   const fm = cache.frontmatter!;
   const f = new Fields(fm, (field, msg) => warn(file.path, field, msg));
-  const dest = (linkpath: string) => app.metadataCache.getFirstLinkpathDest(linkpath, file.path)?.path ?? null;
+  const dest = (linkpath: string) => app.metadataCache.getFirstLinkpathDest(linkpath, file.path)?.path ?? alias?.(linkpath) ?? null;
 
   const type = fm['tm-type'];
   const kind = typeof type === 'string' ? (KINDS[type] ?? null) : null;
@@ -244,12 +244,25 @@ function withOverlay(cache: CachedMetadata, over: Patch | undefined): CachedMeta
   return { ...cache, frontmatter: frontmatter as Frontmatter };
 }
 
+export interface ProjectOptions {
+  /** Where a link leads that the cache no longer resolves, because the note was just renamed. */
+  alias?: (linkpath: string) => string | null;
+}
+
+/** Hand-set sibling order. Items not listed follow in path order. */
+export function inOrder(items: Record<string, Item>, order: string[] | undefined): Record<string, Item> {
+  if (!order?.length) return items;
+  const rank = new Map(order.map((id, i) => [id, i]));
+  const at = (id: string) => rank.get(id) ?? order.length;
+  return Object.fromEntries(Object.entries(items).sort(([a], [b]) => at(a) - at(b)));
+}
+
 /**
  * Notes under `folder` with a `tm-type` become items, keyed by path. Cache only: no file reads.
  * `overlay` supplies values written but not yet back from the cache, so a local edit and its later
  * echo project to the same thing.
  */
-export function projectNotes(app: StoreApp, folder: string, overlay: (path: string) => Patch | undefined = () => undefined): Projection {
+export function projectNotes(app: StoreApp, folder: string, overlay: (path: string) => Patch | undefined = () => undefined, opts: ProjectOptions = {}): Projection {
   const warnings: StoreWarning[] = [];
   const warn: Warn = (path, field, msg) => warnings.push({ path, field, msg });
   let pending = false;
@@ -257,11 +270,13 @@ export function projectNotes(app: StoreApp, folder: string, overlay: (path: stri
   for (const file of app.vault.getMarkdownFiles()) {
     if (!file.path.startsWith(folder)) continue;
     const raw = app.metadataCache.getFileCache(file);
-    if (!raw) {
+    const over = overlay(file.path);
+    // A note the store just wrote is known before the cache has it.
+    if (!raw && !over?.['tm-type']) {
       pending = true;
       continue;
     }
-    const cache = withOverlay(raw, overlay(file.path));
+    const cache = withOverlay(raw ?? {}, over);
     if (cache.frontmatter && 'tm-type' in cache.frontmatter) notes.push({ file, cache });
   }
   // Key order decides who joins a level first, so it must not depend on vault order.
@@ -269,7 +284,7 @@ export function projectNotes(app: StoreApp, folder: string, overlay: (path: stri
 
   const items: Record<string, Item> = {};
   for (const { file, cache } of notes) {
-    const it = projectNote(app, file, cache, warn);
+    const it = projectNote(app, file, cache, warn, opts.alias);
     if (it) items[file.path] = it;
   }
   settle(items, warn);

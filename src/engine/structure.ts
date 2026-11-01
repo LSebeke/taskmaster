@@ -13,9 +13,11 @@ export interface NewItem {
   pinE?: Day;
   /** Priority level. Default: the old parent's, else the last. */
   tier?: number;
+  /** Note path, when the caller has one. Default: generated. */
+  id?: string;
 }
 
-/** Field-level checks. Cycles are found by trying addItem on a copy and calling hasCycle. */
+/** Field-level checks. `newItemError` adds what needs the state. */
 export function validateNew(n: NewItem): string | null {
   if (!n.title?.trim()) return 'Give it a name.';
   if (n.kind === 'ext') {
@@ -25,7 +27,21 @@ export function validateNew(n: NewItem): string | null {
   }
   if (n.hours != null && n.hours < 0) return 'Hours cannot be negative.';
   if (n.kind === 'ms' && !n.parent) return 'A milestone needs a parent.';
+  if (n.pinS != null && n.pinE != null && n.pinE < n.pinS) return 'End pin is before the start pin.';
   return null;
+}
+
+/** Why this item cannot be added, or null. */
+export function newItemError(st: State, n: NewItem): string | null {
+  const field = validateNew(n);
+  if (field || n.kind === 'ext') return field;
+  const P = n.parent ? st.items[n.parent] : null;
+  if (n.parent && !P) return 'That parent is gone.';
+  if (P?.kind === 'ms') return 'Milestones cannot have children.';
+  if (P?.kind === 'ext') return 'External items cannot have children.';
+  const trial = structuredClone(st);
+  addItem(trial, n);
+  return hasCycle(trial) ? 'That would create a dependency loop.' : null;
 }
 
 /** First child: the item's hours become its budget. Logged hours stay counted. Returns its old priority level. */
@@ -56,8 +72,8 @@ function release(st: State, p: string | null | undefined): void {
 /** New items have no plan until Update plan. */
 export function addItem(st: State, n: NewItem): string {
   st.seq = (st.seq ?? 0) + 1;
-  let id = `n${st.seq}`;
-  while (st.items[id]) id = `n${++st.seq}`;
+  let id = n.id ?? `n${st.seq}`;
+  while (!n.id && st.items[id]) id = `n${++st.seq}`;
 
   if (n.kind === 'ext') {
     st.items[id] = { title: n.title.trim(), parent: null, kind: 'ext', pinS: n.pinS, pinE: n.pinE, deps: [], todos: [], notes: [] };
@@ -86,7 +102,7 @@ export function addItem(st: State, n: NewItem): string {
   st.items[id] = it;
   if (!ms && h > 0) {
     if (!st.tiers.length) st.tiers.push([]);
-    st.tiers[n.tier ?? (from >= 0 ? from : st.tiers.length - 1)].push(id);
+    st.tiers[Math.min(n.tier ?? (from >= 0 ? from : st.tiers.length - 1), st.tiers.length - 1)].push(id);
   }
   return id;
 }
