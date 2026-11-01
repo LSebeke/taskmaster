@@ -1,3 +1,4 @@
+import { analyze } from '../src/engine';
 import * as edits from '../src/store/edits';
 import { STATE_PATH, TaskmasterStore } from '../src/store';
 import { TaskmasterView } from '../src/view';
@@ -40,6 +41,7 @@ void store.load().then(async () => {
       /** Seed ids are stable names for the harness. Items are keyed by note path. */
       path: pathOf,
       note: (id: string) => vault.frontmatter(pathOf(id)),
+      forecast: () => JSON.stringify(analyze(store.state).by),
       stateFile: () => JSON.parse(vault.files.get(STATE_PATH) ?? '{}'),
     },
   });

@@ -645,6 +645,298 @@ await check('windowed column at 1,110 items', async () => {
   await page.close();
 });
 
+// To-do rail: real mouse drags, the real store, a fake vault.
+{
+  const page = await open('theme=light', 'light', { width: 1600, height: 1300 });
+  const tab = name => page.locator('.tm-tab', { hasText: name });
+  const levels = page.locator('.tm-level');
+  const taskRow = title => page.locator('.tm-td', { has: page.locator(`.tm-td-title[title="${title}"]`) });
+  const tiers = () => page.evaluate(() => window.tm.store.state.tiers);
+  const titles = () => page.evaluate(() => window.tm.store.state.tiers.map(t => t.map(id => window.tm.store.state.items[id].title)));
+  const forecast = () => page.evaluate(() => window.tm.forecast());
+  const body = id => page.evaluate(i => window.tm.vault.notes.get(window.tm.path(i)).body, id);
+  const box = async loc => {
+    const b = await loc.boundingBox();
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2, top: b.y, bottom: b.y + b.height };
+  };
+  /** Presses on a row and carries it to a point, still held. */
+  const carry = async (title, to) => {
+    const from = await box(taskRow(title).locator('.tm-td-hd'));
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + 4, from.y + 6, { steps: 3 });
+    await page.mouse.move(to.x, to.y, { steps: 10 });
+    await page.mouse.move(to.x, to.y + 1);
+  };
+  /** Where everything sits, to prove a drag shifts nothing. */
+  const layout = () =>
+    page.evaluate(() => JSON.stringify([...document.querySelectorAll('.tm-level,.tm-td,.tm-level-head')].map(e => Object.values(e.getBoundingClientRect().toJSON()))));
+
+  await tab('To-do').click();
+  await check('to-do tab shows one box per level, overall by default', async () => {
+    assert.equal(await levels.count(), (await tiers()).length);
+    assert.match(await levels.nth(0).locator('.tm-level-head').textContent(), /Priority 1/);
+    const all = (await titles()).flat();
+    assert.equal(await page.locator('.tm-td').count(), all.length);
+  });
+  await check('headers show task count and equal burn', async () => {
+    const t = await titles();
+    const i = t.findIndex(l => l.length > 1);
+    assert.match(await levels.nth(i).locator('.tm-level-head').textContent(), new RegExp(`${t[i].length} tasks, equal burn`));
+  });
+  await check('rows show open to-dos, hours left and burn', async () => {
+    assert.match(await taskRow('CAN transceiver debug').locator('.tm-td-hd').textContent(), /☐\s*\d+\s+[\d.]+h · [\d.]+h\/d/);
+  });
+  await check('a row expands to its to-dos; a tick writes the note and undoes', async () => {
+    const row = taskRow('CAN transceiver debug');
+    await row.locator('.tm-td-open').click();
+    const box = row.locator('input[type=checkbox]').first();
+    await box.waitFor();
+    const was = await body('gw.hw.can');
+    const label = row.locator('.tm-todos label').first();
+    const text = (await label.textContent()).trim();
+    const on = await box.isChecked();
+    await box.click();
+    assert.equal(await box.isChecked(), !on);
+    await settle(page);
+    assert.notEqual(await body('gw.hw.can'), was);
+    assert.match(await body('gw.hw.can'), new RegExp(`\\[${on ? ' ' : 'x'}\\] ${text}`));
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    assert.equal(await body('gw.hw.can'), was);
+    assert.equal(await box.isChecked(), on);
+  });
+  await check('adding a to-do writes the note, shows, and undoes', async () => {
+    const row = taskRow('CAN transceiver debug');
+    const was = await row.locator('.tm-td-hd .tm-num').textContent();
+    const add = row.locator('.tm-todo-add');
+    await add.fill('Check bus load');
+    await add.press('Enter');
+    await row.locator('.tm-todos label', { hasText: 'Check bus load' }).waitFor();
+    assert.equal(await add.inputValue(), '');
+    assert.notEqual(await row.locator('.tm-td-hd .tm-num').textContent(), was);
+    await settle(page);
+    assert.match(await body('gw.hw.can'), /- \[ \] Check bus load/);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    assert.doesNotMatch(await body('gw.hw.can'), /Check bus load/);
+    await row.locator('.tm-td-open').click();
+  });
+
+  const multi = (await titles()).findIndex(l => l.length > 1);
+  await check('drag within a level: neutral, line, banner, no shift, forecast untouched', async () => {
+    const t = await titles();
+    const [first, second] = t[multi];
+    const before = await forecast();
+    const hash = await canvasHash(page);
+    const still = await layout();
+    const target = await box(taskRow(second));
+    await carry(first, { x: target.x, y: target.bottom - 3 });
+    assert.equal(await page.locator('.tm-lists.tm-dragging').count(), 1);
+    const styles = await levels.evaluateAll(els => els.map(e => getComputedStyle(e).borderTopStyle));
+    assert.ok(styles.every(s => s === 'dashed'), `borders ${styles}`);
+    assert.equal(await levels.nth(multi).evaluate(e => e.classList.contains('tm-level-same')), true);
+    assert.equal(await page.locator('.tm-banner').count(), 1);
+    assert.equal(await levels.nth(multi).locator('.tm-banner').textContent(), 'Order only: schedule stays the same');
+    assert.equal(await page.locator('.tm-insert').count(), 1);
+    await shoot(page, 'todo-drag-same-light');
+    assert.equal(await layout(), still, 'layout moved during the drag');
+    await page.mouse.up();
+    await settle(page);
+    assert.deepEqual((await titles())[multi].slice(0, 2), [second, first]);
+    assert.equal(await page.locator('.tm-banner').count(), 0);
+    assert.equal(await page.locator('.tm-lists.tm-dragging').count(), 0);
+    assert.equal(await forecast(), before);
+    assert.equal(await canvasHash(page), hash);
+    assert.equal(await page.locator('.tm-undo').isDisabled(), false);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    assert.deepEqual((await titles())[multi].slice(0, 2), [first, second]);
+  });
+  await check('drag to another level: warning, line, banner, no shift, then moved and undoable', async () => {
+    const t = await titles();
+    const other = multi === 0 ? 1 : 0;
+    const moving = t[multi][0];
+    const before = await forecast();
+    const still = await layout();
+    const target = await box(taskRow(t[other][0]));
+    await carry(moving, { x: target.x, y: target.top + 3 });
+    assert.equal(await levels.nth(other).evaluate(e => e.classList.contains('tm-level-cross')), true);
+    assert.equal(await levels.nth(other).locator('.tm-banner').textContent(), `Moves to Priority ${other + 1}: changes who gets hours`);
+    assert.equal(await page.locator('.tm-insert').count(), 1);
+    const line = await box(page.locator('.tm-insert'));
+    assert.ok(Math.abs(line.y - target.top) < 6, `line at ${line.y}, row at ${target.top}`);
+    await shoot(page, 'todo-drag-cross-light');
+    assert.equal(await layout(), still, 'layout moved during the drag');
+    await page.mouse.up();
+    await settle(page);
+    const moved = await titles();
+    assert.equal(moved.length, t.length, 'a drag never creates a level');
+    assert.equal(moved[other][0], moving);
+    assert.notEqual(await forecast(), before);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    assert.deepEqual(await titles(), t);
+    assert.equal(await forecast(), before);
+  });
+  await check('dropping outside a level does nothing', async () => {
+    const t = await titles();
+    const wasUndo = await page.locator('.tm-undo').textContent();
+    const head = await box(page.locator('.tm-lists-intro'));
+    await carry(t[multi][0], { x: head.x, y: head.y });
+    assert.equal(await page.locator('.tm-banner').count(), 0);
+    assert.equal(await page.locator('.tm-insert').count(), 0);
+    assert.equal(await page.locator('.tm-lists.tm-dragging').count(), 1);
+    await page.mouse.up();
+    await settle(page);
+    assert.equal(await page.locator('.tm-lists.tm-dragging').count(), 0);
+    assert.deepEqual(await titles(), t);
+    assert.equal(await page.locator('.tm-undo').textContent(), wasUndo);
+    // And leaving the rail altogether, after showing a level's banner.
+    const target = await box(taskRow(t[multi][1]));
+    await carry(t[multi][0], target);
+    assert.equal(await page.locator('.tm-banner').count(), 1);
+    await page.mouse.move(500, 300, { steps: 6 });
+    assert.equal(await page.locator('.tm-banner').count(), 0);
+    await page.mouse.up();
+    await settle(page);
+    assert.deepEqual(await titles(), t);
+  });
+  await check('levels: + above, + New at the bottom, Remove only on empty ones', async () => {
+    const n = (await tiers()).length;
+    const before = await forecast();
+    assert.equal(await page.locator('.tm-level-remove').count(), 0);
+    await levels.nth(0).locator('.tm-level-add').click();
+    assert.equal(await levels.count(), n + 1);
+    assert.equal((await tiers())[0].length, 0);
+    assert.equal(await levels.nth(0).locator('.tm-level-remove').count(), 1);
+    assert.match(await levels.nth(0).textContent(), /Empty/);
+    await page.locator('.tm-level-bottom').click();
+    assert.equal(await levels.count(), n + 2);
+    assert.equal((await tiers()).at(-1).length, 0);
+    assert.equal(await page.locator('.tm-level-remove').count(), 2);
+    assert.equal(await forecast(), before);
+    await shoot(page, 'todo-empty-levels-light');
+    await levels.nth(n + 1).locator('.tm-level-remove').click();
+    await levels.nth(0).locator('.tm-level-remove').click();
+    assert.equal(await levels.count(), n);
+    await page.locator('.tm-undo').click();
+    await page.locator('.tm-undo').click();
+    await page.locator('.tm-undo').click();
+    await page.locator('.tm-undo').click();
+    assert.equal(await levels.count(), n);
+    await settle(page);
+  });
+  await check('dragging into an empty level moves there; the emptied level stays until removed', async () => {
+    const t = await titles();
+    await levels.nth(0).locator('.tm-level-add').click();
+    const target = await box(levels.nth(0).locator('.tm-level-empty'));
+    const moving = t[0][0];
+    const still = await layout();
+    await carry(moving, target);
+    assert.equal(await levels.nth(0).locator('.tm-banner').textContent(), 'Moves to Priority 1: changes who gets hours');
+    assert.equal(await page.locator('.tm-insert').count(), 1);
+    assert.equal(await layout(), still);
+    await page.mouse.up();
+    await settle(page);
+    assert.deepEqual((await titles())[0], [moving]);
+    await page.locator('.tm-undo').click();
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    assert.deepEqual(await titles(), t);
+  });
+  await check('project list follows the focused project', async () => {
+    assert.equal(await page.locator('.tm-todo-scope button').nth(1).isDisabled(), true);
+    const dp = rowByTitle(page, 'Data Pipeline Migration');
+    await dp.hover();
+    await dp.locator('.tm-fb').click();
+    assert.equal(await page.locator('.tm-tab.tm-on').textContent(), 'To-do');
+    const inProject = await page.evaluate(() => {
+      const { items, tiers } = window.tm.store.state;
+      const root = i => (items[i].parent ? root(items[i].parent) : i);
+      return tiers.flat().filter(i => items[root(i)].title === 'Data Pipeline Migration').length;
+    });
+    assert.ok(inProject > 0);
+    assert.equal(await page.locator('.tm-td').count(), inProject);
+    assert.equal(await levels.count(), (await tiers()).length);
+    await page.locator('.tm-todo-scope button').nth(1).waitFor();
+    assert.match(await page.locator('.tm-todo-scope button').nth(1).textContent(), /Data Pipeline Migration/);
+    await shoot(page, 'todo-project-light');
+    await page.locator('.tm-todo-scope button').nth(0).click();
+    assert.equal(await page.locator('.tm-td').count(), (await tiers()).flat().length);
+    await page.locator('.tm-todo-scope button').nth(1).click();
+    await page.locator('.tm-up').click();
+    assert.equal(await page.locator('.tm-td').count(), (await tiers()).flat().length);
+  });
+  await check('level ids with no item yet are tolerated', async () => {
+    const n = await page.locator('.tm-td').count();
+    await page.evaluate(() => window.tm.store.state.tiers.push(['Projects/not indexed yet.md']));
+    await page.locator('.tm-tab', { hasText: 'Overview' }).click();
+    await tab('To-do').click();
+    assert.equal(await page.locator('.tm-td').count(), n);
+    assert.match(await levels.last().textContent(), /Empty/);
+    assert.equal(await levels.last().locator('.tm-level-remove').count(), 0);
+    await page.evaluate(() => window.tm.store.state.tiers.pop());
+    await page.locator('.tm-tab', { hasText: 'Overview' }).click();
+    await tab('To-do').click();
+  });
+  await check('clicking a row title opens its details', async () => {
+    await taskRow('CAN transceiver debug').locator('.tm-td-title').click();
+    assert.equal(await railTitle(page), 'CAN transceiver debug');
+    assert.equal(await page.locator('.tm-tab.tm-on').textContent(), 'Details');
+  });
+  await check('task details: priority dropdown lists existing levels and moves the task', async () => {
+    const pick = page.locator('.tm-rail select[aria-label="Priority"]');
+    const t = await titles();
+    assert.deepEqual(await pick.locator('option').allTextContents(), t.map((_, i) => `Priority ${i + 1}`));
+    const from = t.findIndex(l => l.includes('CAN transceiver debug'));
+    const to = from === 0 ? 1 : 0;
+    assert.equal(await pick.inputValue(), String(from));
+    const before = await forecast();
+    await pick.selectOption(String(to));
+    assert.ok((await titles())[to].includes('CAN transceiver debug'));
+    assert.equal(await pick.inputValue(), String(to));
+    assert.notEqual(await forecast(), before);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+  });
+  await check('task details: to-dos tick and add', async () => {
+    const list = page.locator('.tm-rail .tm-todos');
+    const box = list.locator('input[type=checkbox]').last();
+    const was = await box.isChecked();
+    const note = await body('gw.hw.can');
+    await box.click();
+    assert.equal(await box.isChecked(), !was);
+    await settle(page);
+    assert.notEqual(await body('gw.hw.can'), note);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    const add = page.locator('.tm-rail .tm-todo-add');
+    await add.fill('From details');
+    await add.press('Enter');
+    await list.locator('label', { hasText: 'From details' }).waitFor();
+    await settle(page);
+    assert.match(await body('gw.hw.can'), /- \[ \] From details/);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    await page.keyboard.press('Escape');
+  });
+  await check('parent overview: to-dos tick', async () => {
+    await page.locator('.tm-rail').click({ position: { x: 5, y: 5 } });
+    await page.evaluate(() => window.tm.store.addTodo(window.tm.path('gw.fw'), 'Review boot flow'));
+    await settle(page);
+    await page.locator('.tm-tab', { hasText: 'Overview' }).click();
+    await rowByTitle(page, 'Firmware').locator('.tm-t').click();
+    const box = page.locator('.tm-rail .tm-todos input[type=checkbox]');
+    await box.waitFor();
+    await box.click();
+    await settle(page);
+    assert.match(await body('gw.fw'), /- \[x\] Review boot flow/);
+    await page.keyboard.press('Escape');
+  });
+  await page.close();
+}
+
 // Screenshots
 for (const theme of ['light', 'dark']) {
   await check(`screenshots ${theme}`, async () => {
@@ -652,6 +944,19 @@ for (const theme of ['light', 'dark']) {
     await shoot(page, `top-${theme}`);
     await rowByTitle(page, 'CAN transceiver debug').locator('.tm-t').click();
     await shoot(page, `task-${theme}`);
+    await page.locator('.tm-tab', { hasText: 'To-do' }).click();
+    await page.locator('.tm-td-open').first().click();
+    await page.locator('.tm-td .tm-todos').waitFor();
+    const moving = await page.locator('.tm-td-hd').first().boundingBox();
+    const into = await page.locator('.tm-level').nth(1).locator('.tm-td-hd').nth(1).boundingBox();
+    await page.mouse.move(moving.x + 60, moving.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(into.x + 60, into.y + 16, { steps: 10 });
+    await page.mouse.move(into.x + 60, into.y + 15);
+    await shoot(page, `todo-drag-${theme}`);
+    await page.mouse.move(800, 300, { steps: 4 });
+    await page.mouse.up();
+    await page.locator('.tm-tab', { hasText: 'Details' }).click();
     await page.keyboard.press('Escape');
     const row = rowByTitle(page, 'Sensor Gateway v2');
     await row.hover();

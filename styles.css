@@ -87,7 +87,8 @@
 
 .tm-rail{background:var(--tm-surface);border-left:1px solid var(--tm-ring);display:flex;flex-direction:column;min-height:0}
 .tm-tabs{display:flex;border-bottom:1px solid var(--tm-ring)}
-.tm-tab{flex:1;text-align:center;padding:8px 0;font-weight:600;border-bottom:2px solid var(--tm-accent)}
+.tm-root button.tm-tab,.tm-root button.tm-tab:hover{flex:1;text-align:center;padding:8px 0;font-weight:600;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--tm-ink2)}
+.tm-root button.tm-tab.tm-on{color:var(--tm-ink);border-bottom-color:var(--tm-accent)}
 .tm-panel{padding:12px;overflow:auto;flex:1;min-height:0}
 .tm-panel h2{font-size:15px;margin:0 0 2px;font-weight:600}
 .tm-panel h2.tm-title{margin-top:8px}
@@ -114,6 +115,33 @@
 .tm-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex:none;margin-right:5px}
 .tm-todos{list-style:none;margin:0;padding:0}
 .tm-todos .tm-x{color:var(--tm-muted);text-decoration:line-through}
+.tm-todos label{display:flex;gap:6px;align-items:baseline;padding:1px 0;cursor:pointer}
+.tm-root .tm-todos input[type=checkbox]{flex:none;width:13px;height:13px;margin:0;padding:0;align-self:center}
+.tm-root input.tm-todo-add{width:100%;margin-top:3px}
+
+.tm-todo-scope{max-width:100%}
+.tm-root .tm-todo-scope button{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tm-lists-intro{margin:8px 0}
+/* Nothing here may change size during a drag: borders keep their width, highlights are outlines, banner and line float. */
+.tm-level{position:relative;border:1px solid var(--tm-ring);border-radius:9px;margin-bottom:10px;padding:6px;background:var(--tm-page)}
+.tm-dragging .tm-level{border-style:dashed;border-color:var(--tm-axis)}
+.tm-level-same{outline:2px solid var(--tm-axis);outline-offset:-1px}
+.tm-level-cross{outline:2px solid var(--tm-warn);outline-offset:-1px;background:color-mix(in srgb,var(--tm-warn) 16%,var(--tm-page))}
+.tm-level-head{display:flex;align-items:center;gap:6px;padding:0 2px 5px}
+.tm-level-head b{font-size:13px}
+.tm-level-head .tm-sub{font-size:11px}
+.tm-root .tm-level-head button{padding:0 6px;font-size:11px}
+.tm-banner{position:absolute;left:4px;right:4px;top:3px;z-index:2;pointer-events:none;font-weight:600;font-size:12px;border-radius:5px;padding:3px 7px;background:var(--tm-ink2);color:var(--tm-surface)}
+.tm-level-cross .tm-banner{background:var(--tm-warn);color:#0b0b0b}
+.tm-insert{position:absolute;left:4px;right:4px;height:3px;margin-top:-2px;z-index:1;pointer-events:none;border-radius:2px;background:var(--tm-ink)}
+.tm-level-empty{color:var(--tm-muted);font-size:12px;padding:6px 4px;border:1px dashed var(--tm-axis);border-radius:6px;text-align:center}
+.tm-td{border-radius:6px;padding:1px 2px}
+.tm-td-src{opacity:.45}
+.tm-td-hd{display:flex;align-items:baseline;gap:4px;padding:2px 0;cursor:grab}
+.tm-td-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tm-root button.tm-td-open{flex:none;width:18px;border:0;background:none;padding:0;color:var(--tm-ink2)}
+.tm-td .tm-todos{padding:0 2px 4px 22px}
+.tm-root button.tm-level-bottom{width:100%}
 
 .tm-status{display:flex;gap:14px;padding:5px 12px;font-size:12px;color:var(--tm-ink2);background:var(--tm-surface);border-top:1px solid var(--tm-ring);min-height:29px;align-items:center}
 .tm-no-status .tm-status{display:none}

@@ -1,15 +1,19 @@
 import type { ComponentChildren } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Analysis, State, Todo } from '../../engine';
 import type { Edit } from '../../store/edits';
 import { fmtD, h1, noteName } from '../format';
 import { statusOf } from '../explain';
+import type { UiState } from '../ui-state';
 
 export interface RailActions {
   select(id: string | null): void;
   focus(id: string): void;
   openNote(path: string): void;
   apply(edit: Edit): void;
+  setTodoDone(id: string, index: number, t: string, done: boolean): void;
+  addTodo(id: string, text: string): void;
+  ui(patch: Partial<UiState>): void;
 }
 
 export interface PanelProps {
@@ -97,8 +101,18 @@ export function Notes({ st, id, act }: Pick<PanelProps, 'st' | 'id' | 'act'>) {
   );
 }
 
-/** Text lives in the note, not the cache, so it loads on demand. */
-export function Todos({ a, id, readTodos }: Pick<PanelProps, 'a' | 'id' | 'readTodos'>) {
+function AddTodo({ id, act }: Pick<PanelProps, 'id' | 'act'>) {
+  const field = useRef<HTMLInputElement>(null);
+  const commit = () => {
+    const input = field.current!;
+    if (input.value.trim()) act.addTodo(id, input.value);
+    input.value = '';
+  };
+  return <input ref={field} class="tm-todo-add" aria-label="Add to-do" placeholder="Add to-do…" onBlur={commit} onKeyDown={e => e.key === 'Enter' && commit()} />;
+}
+
+/** Text lives in the note, not the cache, so it loads on demand. Ticks come from the state, which has them at once. */
+export function Todos({ st, a, id, act, readTodos, previewing }: PanelProps) {
   const [todos, setTodos] = useState<Todo[] | null>(null);
   useEffect(() => {
     let live = true;
@@ -109,18 +123,23 @@ export function Todos({ a, id, readTodos }: Pick<PanelProps, 'a' | 'id' | 'readT
     return () => {
       live = false;
     };
-  }, [id, a]);
+  }, [id, previewing ? null : a]);
   if (!todos) return null;
-  if (!todos.length) return <div class="tm-sub">None</div>;
+  const known = st.items[id].todos;
+  const shown = known?.length === todos.length ? todos.map((t, i) => ({ ...t, done: known[i].done })) : todos;
   return (
     <ul class="tm-todos">
-      {todos.map((t, i) => (
+      {shown.map((t, i) => (
         <li key={i} class={t.done ? 'tm-x' : ''}>
           <label>
-            <input type="checkbox" checked={t.done} disabled /> {t.t}
+            <input type="checkbox" checked={t.done} onChange={e => act.setTodoDone(id, i, t.t, e.currentTarget.checked)} />
+            <span>{t.t}</span>
           </label>
         </li>
       ))}
+      <li>
+        <AddTodo id={id} act={act} />
+      </li>
     </ul>
   );
 }

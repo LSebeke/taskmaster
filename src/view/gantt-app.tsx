@@ -25,6 +25,8 @@ export interface ViewStore {
   subscribe(listener: (state: State, label?: string) => void): () => void;
   readTodos(id: string): Promise<Todo[]>;
   apply(edit: Edit): boolean;
+  setTodoDone(id: string, index: number, t: string, done: boolean): boolean;
+  addTodo(id: string, text: string): boolean;
   undo(): Promise<string | null>;
 }
 
@@ -280,7 +282,7 @@ export class GanttApp {
   }
 
   private select(id: string | null) {
-    this.setUi({ ...this.ui, sel: id });
+    this.setUi({ ...this.ui, sel: id, tab: id ? 'overview' : this.ui.tab });
   }
 
   private selectAndReveal(id: string | null) {
@@ -380,6 +382,9 @@ export class GanttApp {
           focus: id => this.focusOn(id),
           openNote: path => this.view.openNote(path),
           apply: edit => void this.store.apply(edit),
+          setTodoDone: (id, index, t, done) => void this.store.setTodoDone(id, index, t, done),
+          addTodo: (id, text) => void this.store.addTodo(id, text),
+          ui: patch => this.setUi({ ...this.ui, ...patch }),
         }}
       />,
       this.rail,
