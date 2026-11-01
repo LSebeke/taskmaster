@@ -39,6 +39,8 @@ export interface UiState {
   collapsed: Set<string>;
   hidden: Set<string>;
   hiddenOpen: boolean;
+  /** Week whose capacity is being edited on the load strip. */
+  weekEdit: number | null;
   /** Pixels per day. */
   ppd: number;
   plan: LayerLevel;
@@ -53,6 +55,7 @@ export const defaultUi = (): UiState => ({
   collapsed: new Set(),
   hidden: new Set(),
   hiddenOpen: false,
+  weekEdit: null,
   ppd: 7,
   plan: 'solid',
   fc: 'ghost',
@@ -75,6 +78,7 @@ export const goUp = (ui: UiState, st: State): UiState => (ui.focus ? setFocus(ui
 
 /** Closes what is open, then clears selection, then goes up. */
 export function escape(ui: UiState, st: State): UiState {
+  if (ui.weekEdit != null) return { ...ui, weekEdit: null };
   if (ui.hiddenOpen) return { ...ui, hiddenOpen: false };
   if (ui.sel) return { ...ui, sel: null };
   return goUp(ui, st);

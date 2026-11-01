@@ -1,6 +1,7 @@
 import type { CachedMetadata, TFile } from 'obsidian';
 import { dayOf, hasCycle, iso, type Day, type Item, type ItemKind, type LogEntry, type Scope, type State } from '../engine';
 import type { StoreApp, StoreWarning } from './ports';
+import type { Patch } from './writer';
 
 type Warn = (path: string, field: string, msg: string) => void;
 type Frontmatter = NonNullable<CachedMetadata['frontmatter']>;
@@ -10,6 +11,21 @@ export function parseDay(v: unknown): Day | undefined {
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return undefined;
   const d = dayOf(v);
   return Number.isNaN(d) || iso(d) !== v ? undefined : d;
+}
+
+/** `2026-11-02 3.5`, or undefined. */
+export function parseLogEntry(v: unknown): LogEntry | undefined {
+  const m = typeof v === 'string' ? /^(\S+)\s+(\d+(?:\.\d+)?)$/.exec(v.trim()) : null;
+  const d = m ? parseDay(m[1]) : undefined;
+  return d === undefined ? undefined : { d, h: Number(m![2]) };
+}
+
+const linkpathOf = (v: unknown) => (typeof v === 'string' ? /^\[\[([^|#\]]+)[^\]]*\]\]$/.exec(v.trim())?.[1] : undefined);
+
+/** Where a `[[link]]` in `source` leads, or null. */
+export function linkTarget(app: StoreApp, v: unknown, source: string): string | null {
+  const linkpath = linkpathOf(v);
+  return linkpath ? (app.metadataCache.getFirstLinkpathDest(linkpath, source)?.path ?? null) : null;
 }
 
 /** Reads typed values out of one note's frontmatter. Bad values are skipped and reported. */
@@ -59,7 +75,7 @@ class Fields {
   }
 
   link(field: string, v: unknown, resolve: (linkpath: string) => string | null): string | null {
-    const linkpath = typeof v === 'string' ? /^\[\[([^|#\]]+)[^\]]*\]\]$/.exec(v.trim())?.[1] : undefined;
+    const linkpath = linkpathOf(v);
     if (!linkpath) {
       this.warn(field, `Expected a [[link]], got ${JSON.stringify(v)}`);
       return null;
@@ -76,10 +92,9 @@ class Fields {
   log(): LogEntry[] {
     const log: LogEntry[] = [];
     for (const e of this.list('tm-log')) {
-      const m = typeof e === 'string' ? /^(\S+)\s+(\d+(?:\.\d+)?)$/.exec(e.trim()) : null;
-      const d = m ? parseDay(m[1]) : undefined;
-      if (d === undefined) this.warn('tm-log', `Skipped entry ${JSON.stringify(e)}`);
-      else log.push({ d, h: Number(m![2]) });
+      const entry = parseLogEntry(e);
+      if (entry) log.push(entry);
+      else this.warn('tm-log', `Skipped entry ${JSON.stringify(e)}`);
     }
     return log.sort((a, b) => a.d - b.d);
   }
@@ -221,17 +236,33 @@ export interface Projection {
   pending: boolean;
 }
 
-/** Notes under `folder` with a `tm-type` become items, keyed by path. Cache only: no file reads. */
-export function projectNotes(app: StoreApp, folder: string): Projection {
+/** A cache entry with the store's unconfirmed writes laid over it. */
+function withOverlay(cache: CachedMetadata, over: Patch | undefined): CachedMetadata {
+  if (!over) return cache;
+  const frontmatter = { ...cache.frontmatter, ...over };
+  for (const k in over) if (over[k] === undefined) delete frontmatter[k];
+  return { ...cache, frontmatter: frontmatter as Frontmatter };
+}
+
+/**
+ * Notes under `folder` with a `tm-type` become items, keyed by path. Cache only: no file reads.
+ * `overlay` supplies values written but not yet back from the cache, so a local edit and its later
+ * echo project to the same thing.
+ */
+export function projectNotes(app: StoreApp, folder: string, overlay: (path: string) => Patch | undefined = () => undefined): Projection {
   const warnings: StoreWarning[] = [];
   const warn: Warn = (path, field, msg) => warnings.push({ path, field, msg });
   let pending = false;
   const notes: { file: TFile; cache: CachedMetadata }[] = [];
   for (const file of app.vault.getMarkdownFiles()) {
     if (!file.path.startsWith(folder)) continue;
-    const cache = app.metadataCache.getFileCache(file);
-    if (!cache) pending = true;
-    else if (cache.frontmatter && 'tm-type' in cache.frontmatter) notes.push({ file, cache });
+    const raw = app.metadataCache.getFileCache(file);
+    if (!raw) {
+      pending = true;
+      continue;
+    }
+    const cache = withOverlay(raw, overlay(file.path));
+    if (cache.frontmatter && 'tm-type' in cache.frontmatter) notes.push({ file, cache });
   }
   // Key order decides who joins a level first, so it must not depend on vault order.
   notes.sort((a, b) => (a.file.path < b.file.path ? -1 : 1));

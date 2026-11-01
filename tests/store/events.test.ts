@@ -15,6 +15,7 @@ let events: State[];
 const boot = async () => {
   store = new TaskmasterStore(o.app, { today: () => today, debounceMs: DEBOUNCE });
   await store.load();
+  await vi.advanceTimersByTimeAsync(0); // Dates are recorded just after boot.
   events = [];
   store.subscribe(s => events.push(s));
 };
@@ -40,7 +41,7 @@ describe('recompute events', () => {
     store.subscribe(seen);
     await store.load();
     expect(seen).toHaveBeenCalledOnce();
-    expect(seen).toHaveBeenCalledWith(store.state);
+    expect(seen).toHaveBeenCalledWith(store.state, undefined);
   });
 
   it('picks up a cache change after the debounce, not before', async () => {

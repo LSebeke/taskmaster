@@ -1,9 +1,13 @@
+import type { DataAdapter } from 'obsidian';
 import type { Day, PlanEntry, PlanHistoryEntry, State } from '../engine';
-import { weekOfIsoKey } from '../engine';
+import { iso, isoWeekKey, weekOfIsoKey } from '../engine';
 import type { StoreWarning } from './ports';
 import { parseDay } from './project';
 
 export const STATE_PATH = '_taskmaster/state.json';
+export const STATE_TMP = `${STATE_PATH}.tmp`;
+/** A state.json that would not parse, kept before the first write replaces it. */
+export const STATE_BAD = `${STATE_PATH}.bad`;
 
 /** The part of State that lives in state.json. Dates are ISO strings on disk. */
 export type StateFile = Pick<State, 'tiers' | 'plan' | 'planHistory'> & {
@@ -11,6 +15,44 @@ export type StateFile = Pick<State, 'tiers' | 'plan' | 'planHistory'> & {
   weekCap: Record<number, number>;
   holidays: Day[];
 };
+
+const planEntry = (e: PlanEntry) => ({ start: iso(e.start), end: iso(e.end), hours: e.hours });
+const planEntries = (o: Partial<Record<string, PlanEntry>>) => Object.fromEntries(Object.entries(o).flatMap(([k, e]) => (e ? [[k, planEntry(e)]] : [])));
+
+/** The inverse of parseStateFile. */
+export function serializeState(st: State): string {
+  const { weekly, weekCap, holidays } = st.settings;
+  return `${JSON.stringify(
+    {
+      tiers: st.tiers,
+      plan: planEntries(st.plan),
+      planHistory: (st.planHistory ?? []).map(h => ({ day: iso(h.day), ids: h.ids, before: planEntries(h.before) })),
+      capacity: weekly,
+      weekCapacity: Object.fromEntries(Object.entries(weekCap ?? {}).map(([w, h]) => [isoWeekKey(Number(w)), h])),
+      holidays: holidays.map(iso),
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+type StateAdapter = Pick<DataAdapter, 'exists' | 'write' | 'rename' | 'remove' | 'mkdir'>;
+
+/**
+ * Write beside it, then swap. Some adapters refuse to rename over a file, so the swap can need two
+ * steps. A crash between them leaves the whole new file at STATE_TMP, which load picks up.
+ */
+export async function writeStateAtomically(adapter: StateAdapter, json: string): Promise<void> {
+  const dir = STATE_PATH.split('/')[0];
+  if (!(await adapter.exists(dir))) await adapter.mkdir(dir);
+  await adapter.write(STATE_TMP, json);
+  try {
+    await adapter.rename(STATE_TMP, STATE_PATH);
+  } catch {
+    await adapter.remove(STATE_PATH);
+    await adapter.rename(STATE_TMP, STATE_PATH);
+  }
+}
 
 export const defaultStateFile = (): StateFile => ({ tiers: [], plan: {}, planHistory: [], weekly: 30, weekCap: {}, holidays: [] });
 
@@ -32,7 +74,7 @@ function parseHistoryEntry(v: unknown): PlanHistoryEntry | undefined {
 }
 
 /** Every field is optional. A bad field or entry is skipped and reported, the rest still load. */
-export function parseStateFile(raw: string): { file: StateFile; warnings: StoreWarning[] } {
+export function parseStateFile(raw: string): { file: StateFile; warnings: StoreWarning[]; broken?: boolean } {
   const file = defaultStateFile();
   const warnings: StoreWarning[] = [];
   const warn = (msg: string, field?: string) => warnings.push({ path: STATE_PATH, field, msg });
@@ -41,12 +83,12 @@ export function parseStateFile(raw: string): { file: StateFile; warnings: StoreW
   try {
     root = JSON.parse(raw);
   } catch {
-    warn('Not valid JSON. Using defaults');
-    return { file, warnings };
+    warn(`Not valid JSON. Using defaults, a copy stays at ${STATE_BAD}`);
+    return { file, warnings, broken: true };
   }
   if (!isObject(root)) {
-    warn('Not a JSON object. Using defaults');
-    return { file, warnings };
+    warn(`Not a JSON object. Using defaults, a copy stays at ${STATE_BAD}`);
+    return { file, warnings, broken: true };
   }
 
   const { tiers, plan, planHistory, capacity, weekCapacity, holidays } = root;

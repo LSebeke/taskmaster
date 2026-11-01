@@ -1,7 +1,11 @@
-import { leavesOf } from '../../engine';
+import { leavesOf, type Scope } from '../../engine';
+import { deleteLogEntry, editLogEntry, setBudget, setDeadline, setHoursLeft, setPin, setScope, setTotal } from '../../store/edits';
 import { countNotInPlan, upcomingExternals, why } from '../explain';
 import { fmtD, h1 } from '../format';
+import { DateField, Deps, EdgeSwitch, LogForm, NumField } from './fields';
 import { Card, Dated, Field, Link, Notes, StatusCard, Tiles, Todos, type PanelProps } from './parts';
+
+const SCOPES: Scope[] = ['must', 'should', 'could'];
 
 const titleOf = (st: PanelProps['st'], id: string | null | undefined) => (id ? st.items[id]?.title : null);
 
@@ -65,7 +69,7 @@ export function AllProjects({ st, a, roots, act }: Pick<PanelProps, 'st' | 'a' |
 }
 
 /** A parent, selected or focused. */
-export function Overview({ st, a, id, act, readTodos, selected, focused }: PanelProps & { selected: boolean; focused: boolean }) {
+export function Overview({ st, a, id, act, readTodos, previewing, selected, focused }: PanelProps & { selected: boolean; focused: boolean }) {
   const it = st.items[id];
   const b = a.by[id];
   const free = it.budget != null ? it.budget - b.spent - b.left : 0;
@@ -90,9 +94,15 @@ export function Overview({ st, a, id, act, readTodos, selected, focused }: Panel
       <Notes st={st} id={id} act={act} />
       <h3>Properties</h3>
       <Field label="Name">{it.title}</Field>
-      <Field label="Budget">{it.budget != null ? `${h1(it.budget)}h` : 'None'}</Field>
-      <Field label="Deadline">{it.deadline != null ? fmtD(it.deadline) : 'None'}</Field>
+      <Field label="Budget">
+        <NumField clearable label="Budget" value={it.budget} step={1} placeholder="None" onCommit={h => act.apply(setBudget(id, h))} />
+      </Field>
+      <Field label="Deadline">
+        <DateField label="Deadline" value={it.deadline} onCommit={d => act.apply(setDeadline(id, d))} />
+      </Field>
       <Field label="Inside">{titleOf(st, it.parent) ?? 'Top level (project)'}</Field>
+      <h3>Depends on</h3>
+      <Deps st={st} a={a} id={id} act={act} previewing={previewing} />
       {!!it.todos?.length && (
         <>
           <h3>To-dos</h3>
@@ -105,13 +115,12 @@ export function Overview({ st, a, id, act, readTodos, selected, focused }: Panel
 }
 
 /** A task, draft or milestone. */
-export function TaskPanel({ st, a, id, act, readTodos }: PanelProps) {
+export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps) {
   const it = st.items[id];
   const b = a.by[id];
   const ms = it.kind === 'ms';
   const level = st.tiers.findIndex(t => t.includes(id));
   const peers = level >= 0 ? st.tiers[level].filter(x => x !== id && a.by[x] && !a.by[x].done).length : 0;
-  const edge = (pin: number | null | undefined, auto: number | null) => (pin != null ? `Pinned, ${fmtD(pin)}` : `Auto, ${fmtD(auto)}`);
   return (
     <>
       <Back act={act} />
@@ -140,36 +149,58 @@ export function TaskPanel({ st, a, id, act, readTodos }: PanelProps) {
       </Card>
       <Field label="Name">{it.title}</Field>
       <Field label="Inside">{titleOf(st, it.parent) ?? 'Top level (project)'}</Field>
-      {!ms && <Field label="Deadline">{it.deadline != null ? fmtD(it.deadline) : 'None'}</Field>}
+      {!ms && (
+        <Field label="Deadline">
+          <DateField label="Deadline" value={it.deadline} onCommit={d => act.apply(setDeadline(id, d))} />
+        </Field>
+      )}
       <h3>Schedule</h3>
-      <Field label="Start">{edge(ms ? undefined : it.pinS, b.start)}</Field>
-      <Field label="End">{edge(it.pinE, b.end)}</Field>
+      {!ms && (
+        <Field label="Start">
+          <EdgeSwitch name="Start" pin={it.pinS} auto={b.start} today={st.today} onPin={d => act.apply(setPin(id, 'start', d))} />
+        </Field>
+      )}
+      <Field label={ms ? 'Date' : 'End'}>
+        <EdgeSwitch name={ms ? 'Date' : 'End'} pin={it.pinE} auto={b.end} today={st.today} onPin={d => act.apply(setPin(id, 'end', d))} />
+      </Field>
       {!ms && (
         <>
           <h3>Hours</h3>
-          <Field label="Total hours">{h1(b.spent + b.left)}h</Field>
-          <Field label="Hours left">{h1(b.left)}h</Field>
+          <Field label="Total hours">
+            <NumField label="Total hours" value={b.spent + b.left} onCommit={h => h != null && act.apply(setTotal(id, h))} />
+          </Field>
+          <Field label="Hours left">
+            <NumField label="Hours left" value={b.left} onCommit={h => h != null && act.apply(setHoursLeft(id, h))} />
+          </Field>
+          <Field label="Log hours">
+            <LogForm id={id} today={st.today} apply={act.apply} />
+          </Field>
           {!!it.log?.length && <h3>Logged ({h1(b.spent)}h)</h3>}
-          {it.log?.map(l => (
-            <div class="tm-li" key={l.d}>
+          {it.log?.map((l, i) => (
+            <div class="tm-li" key={i}>
               <Dated d={l.d} />
               <span class="tm-grow" />
-              <span class="tm-num">{h1(l.h)}h</span>
+              <NumField label={`Hours logged ${fmtD(l.d)}`} value={l.h} step={0.25} onCommit={h => h != null && act.apply(editLogEntry(id, i, h))} />
+              <button class="tm-x-btn" title="Delete entry, hours return to left" aria-label={`Delete log entry ${fmtD(l.d)}`} onClick={() => act.apply(deleteLogEntry(id, i))}>
+                ×
+              </button>
             </div>
           ))}
           <h3>Priority and scope</h3>
           <Field label="Priority">{level >= 0 ? `Priority ${level + 1}` : 'None'}</Field>
-          <Field label="Scope">{it.scope ?? 'must'}</Field>
+          <Field label="Scope">
+            <select aria-label="Scope" value={it.scope ?? 'must'} onChange={e => act.apply(setScope(id, e.currentTarget.value as Scope))}>
+              {SCOPES.map(s => (
+                <option value={s} key={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </Field>
         </>
       )}
       <h3>Depends on</h3>
-      {(it.deps ?? []).map(d => (
-        <div class="tm-li" key={d}>
-          <Link id={d} st={st} act={act} />
-          <Dated d={a.by[d]?.end} />
-        </div>
-      ))}
-      {!it.deps?.length && <div class="tm-sub">Nothing</div>}
+      <Deps st={st} a={a} id={id} act={act} previewing={previewing} />
       {!ms && (
         <>
           <h3>To-dos</h3>
@@ -183,7 +214,7 @@ export function TaskPanel({ st, a, id, act, readTodos }: PanelProps) {
 }
 
 /** Read-only for now: editing and the effect figures come later. */
-export function ExternalPanel({ st, a, id, act }: Omit<PanelProps, 'readTodos'>) {
+export function ExternalPanel({ st, a, id, act }: Omit<PanelProps, 'readTodos' | 'previewing'>) {
   const it = st.items[id];
   const b = a.by[id];
   const blocks = Object.keys(st.items)

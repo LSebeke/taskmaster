@@ -4,6 +4,14 @@ import { state, task } from '../engine/helpers';
 
 const st = state({ p: task('p', 0), 'p.g': task('g', 0, { parent: 'p' }), 'p.g.t': task('t', 8, { parent: 'p.g' }), q: task('q', 8) }, [['p.g.t', 'q']]);
 
+describe('escape with a week being edited', () => {
+  it('closes it first', () => {
+    const st = { items: {} } as never;
+    const ui = { ...defaultUi(), weekEdit: 3, hiddenOpen: true };
+    expect(escape(ui, st)).toMatchObject({ weekEdit: null, hiddenOpen: true });
+  });
+});
+
 describe('navigation', () => {
   it('Esc closes the hidden list first, then clears selection, then goes up, then rests', () => {
     let ui: UiState = { ...defaultUi(), focus: 'p.g', sel: 'p.g.t', hiddenOpen: true };

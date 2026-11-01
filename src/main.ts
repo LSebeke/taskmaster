@@ -18,7 +18,8 @@ export default class TaskmasterPlugin extends Plugin {
     const store = new TaskmasterStore(this.app);
     this.store = store;
     this.register(() => store.dispose());
-    void store.load();
+    // Before layout-ready the vault can look empty, and an empty vault looks like every task was deleted.
+    this.app.workspace.onLayoutReady(() => void store.load());
     return store;
   }
 

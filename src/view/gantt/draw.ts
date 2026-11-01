@@ -2,6 +2,8 @@ import { isWork, type State } from '../../engine';
 import { fmtD } from '../format';
 import { HEAD, LOADH, ROW } from '../rows';
 import type { UiState } from '../ui-state';
+import { DOT_R, dotAt, forecastBar } from './drag';
+import type { Hot } from './gestures';
 import type { Load } from './load';
 import type { Palette } from './palette';
 import { axisTicks, isoWeek, type TimeScale } from './scale';
@@ -18,6 +20,7 @@ export interface Frame {
   height: number;
   scrollLeft: number;
   scrollTop: number;
+  hot: Hot;
 }
 
 const WEEKEND_MIN_PPD = 4;
@@ -123,6 +126,51 @@ function drawLinks(c: CanvasRenderingContext2D, f: Frame, bottom: number) {
     c.stroke();
   }
   c.setLineDash([]);
+}
+
+/** The link dot under the pointer, and the line of a link being dragged. */
+function drawHot(c: CanvasRenderingContext2D, f: Frame) {
+  const { hot, scene, scale, pal, scrollLeft, scrollTop, width } = f;
+  const { link } = hot;
+  const yOf = (i: number) => HEAD + i * ROW - scrollTop;
+  if (link?.target != null) {
+    c.fillStyle = link.ok ? pal.accent : pal.crit;
+    c.globalAlpha = 0.18;
+    c.fillRect(0, yOf(link.target), width, ROW - 1);
+    c.globalAlpha = 1;
+  }
+  const bar = hot.row != null && !link ? forecastBar(scene.rows[hot.row]) : undefined;
+  if (bar) {
+    const dot = dotAt(bar, scale);
+    c.fillStyle = pal.surface;
+    c.strokeStyle = pal.accent;
+    c.lineWidth = 2;
+    c.beginPath();
+    c.arc(dot.x - scrollLeft, yOf(hot.row!) + dot.y, DOT_R, 0, Math.PI * 2);
+    c.fill();
+    c.stroke();
+  }
+  if (link) {
+    const x0 = link.x0 - scrollLeft;
+    const y0 = HEAD + link.y0 - scrollTop;
+    const x1 = link.x1 - scrollLeft;
+    const y1 = HEAD + link.y1 - scrollTop;
+    c.strokeStyle = link.ok ? pal.accent : pal.crit;
+    c.fillStyle = c.strokeStyle;
+    c.lineWidth = 2;
+    c.setLineDash([5, 4]);
+    c.beginPath();
+    c.moveTo(x0, y0);
+    c.lineTo(x1, y1);
+    c.stroke();
+    c.setLineDash([]);
+    c.beginPath();
+    c.arc(x0, y0, DOT_R, 0, Math.PI * 2);
+    c.fill();
+    c.beginPath();
+    c.arc(x1, y1, 3, 0, Math.PI * 2);
+    c.fill();
+  }
 }
 
 function drawAxis(c: CanvasRenderingContext2D, f: Frame) {
@@ -274,6 +322,7 @@ export function drawGantt(c: CanvasRenderingContext2D, f: Frame) {
     if (row.deadline != null) drawDeadline(c, f, row.deadline, y);
   }
   drawLinks(c, f, bottom);
+  drawHot(c, f);
   c.restore();
 
   if (show.today) {

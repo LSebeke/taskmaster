@@ -25,15 +25,33 @@ const { default: TaskmasterPlugin } = await import('../src/main');
 
 const setup = () => {
   const o = new FakeObsidian();
-  let ready: () => void = () => {};
+  let isReady = false;
+  const waiting: (() => void)[] = [];
   const leaf = { setViewState: vi.fn(async () => {}) };
   const open = { getLeavesOfType: vi.fn((): unknown[] => []), getLeaf: vi.fn(() => leaf), revealLeaf: vi.fn(async () => {}) };
-  const app = { ...o.app, workspace: { ...open, onLayoutReady: (cb: () => void) => (ready = cb) } };
+  const onLayoutReady = (cb: () => void) => (isReady ? cb() : waiting.push(cb));
+  const ready = () => {
+    isReady = true;
+    waiting.splice(0).forEach(cb => cb());
+  };
+  const app = { ...o.app, workspace: { ...open, onLayoutReady } };
   const plugin = new (TaskmasterPlugin as unknown as new (app: unknown) => InstanceType<typeof TaskmasterPlugin>)(app);
-  return { o, plugin, leaf, open, ready: () => ready() };
+  return { o, plugin, leaf, open, ready };
 };
 
 describe('plugin load', () => {
+  it('does not read the vault for a view restored before the layout is ready', async () => {
+    const { o, plugin, ready } = setup();
+    o.add('Projects/a.md', { 'tm-type': 'item' });
+    await plugin.onload();
+    const files = vi.spyOn(o.app.vault, 'getMarkdownFiles');
+    (plugin as unknown as { ensureStore(): unknown }).ensureStore();
+    await new Promise(r => setTimeout(r));
+    expect(files).not.toHaveBeenCalled();
+    ready();
+    await vi.waitFor(() => expect(plugin.store?.state.items['Projects/a.md']).toBeDefined());
+  });
+
   it('touches nothing during onload', async () => {
     const { o, plugin } = setup();
     o.stateJson = '{}';

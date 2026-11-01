@@ -1,12 +1,13 @@
 /** The Obsidian surface the view touches, for the browser harness. Replaces `obsidian` at bundle time. */
 
 type Handler = (evt: KeyboardEvent, ctx: unknown) => false | unknown;
+type Modifiers = string[] | null;
 
 export class Scope {
-  handlers: { key: string | null; func: Handler }[] = [];
+  handlers: { modifiers: Modifiers; key: string | null; func: Handler }[] = [];
   constructor(public parent?: Scope) {}
-  register(_modifiers: unknown, key: string | null, func: Handler) {
-    const h = { key, func };
+  register(modifiers: Modifiers, key: string | null, func: Handler) {
+    const h = { modifiers, key, func };
     this.handlers.push(h);
     return h;
   }

@@ -51,6 +51,17 @@ export function hasCycle(st: State): boolean {
   return Object.keys(st.items).some(id => !K[id] && visit(id));
 }
 
+/** Why id cannot depend on dep, or null if it can. */
+export function depError(st: State, id: string, dep: string): string | null {
+  const it = st.items[id];
+  const to = st.items[dep];
+  if (!it || !to) return 'That item is gone.';
+  if (id === dep) return 'An item cannot depend on itself.';
+  if (it.kind === 'ext') return 'External items have no dependencies of their own.';
+  if (it.deps?.includes(dep)) return `${it.title} already depends on ${to.title}.`;
+  return depBlocker(st, id)(dep) ? 'That would create a dependency loop.' : null;
+}
+
 /** Everything that may not become a predecessor of id. */
 export function depBlocker(st: State, id: string): (candidate: string) => boolean {
   const K = kids(st);

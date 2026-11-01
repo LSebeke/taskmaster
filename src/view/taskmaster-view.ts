@@ -36,6 +36,12 @@ export class TaskmasterView extends ItemView {
       gantt.escape();
       return false;
     });
+    this.scope.register(['Mod'], 'z', () => {
+      // Inside a field, Ctrl+Z belongs to the field.
+      if (this.contentEl.ownerDocument.activeElement?.closest('input,select,textarea')) return true;
+      gantt.undo();
+      return false;
+    });
     this.registerEvent(this.app.workspace.on('css-change', () => gantt.refreshTheme()));
   }
 

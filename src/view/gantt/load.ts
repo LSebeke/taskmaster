@@ -18,6 +18,10 @@ export interface Load {
   peak: number;
 }
 
+/** The week under a chart x, or null past the strip. */
+export const loadWeekAt = (load: Load, x: number, scale: { dayAt(x: number): Day }): LoadWeek | null =>
+  load.weeks.find(w => w.week === weekOf(Math.floor(scale.dayAt(x)))) ?? null;
+
 const OVER_EPS = 0.01;
 /** Past any viewport at the widest zoom: the capacity line runs on after the last task. */
 export const LOAD_DAYS = 3000;

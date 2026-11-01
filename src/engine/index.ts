@@ -1,6 +1,6 @@
 export * from './types';
 export * from './calendar';
-export { depBlocker, effDeps, hasCycle, isDraft, kids, leavesOf, rootOf } from './graph';
+export { depBlocker, depError, effDeps, hasCycle, isDraft, kids, leavesOf, rootOf } from './graph';
 export { schedule } from './schedule';
 export { analyze } from './analyze';
 export { addTier, ensureTiers, moveToTier, removeTier } from './tiers';

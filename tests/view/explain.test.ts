@@ -137,6 +137,15 @@ describe('status bar changes', () => {
   });
 });
 
+describe('status bar with an edit', () => {
+  it('names the edit, moved or not', () => {
+    const before = state({ a: task('a', 12) }, [['a']]);
+    const after: State = { ...before, items: { a: { ...before.items.a, left: 60 } } };
+    expect(describeChanges(after, analyze(before), analyze(after), 'a: 60h left')).toMatch(/^a: 60h left: forecast moved on 1 task: a \+\d+d$/);
+    expect(describeChanges(before, analyze(before), analyze(before), 'Logged 1h')).toBe('Logged 1h: no forecast change');
+  });
+});
+
 describe('format', () => {
   it('dates and hours', () => {
     expect(fmtD(D('2026-11-02'))).toBe('2 Nov');

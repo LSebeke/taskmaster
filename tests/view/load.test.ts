@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyze, weekOf } from '../../src/engine';
-import { buildLoad } from '../../src/view/gantt/load';
+import { buildLoad, loadWeekAt } from '../../src/view/gantt/load';
+import { makeScale } from '../../src/view/gantt/scale';
 import { D, state, task } from '../engine/helpers';
 
 const W = weekOf(D('2026-11-02'));
@@ -8,6 +9,15 @@ const span = { a: D('2026-11-02'), b: D('2026-11-29') };
 const load = (st: ReturnType<typeof state>) => buildLoad(st, analyze(st), ['a'], span);
 
 describe('load strip', () => {
+  it('finds the week under a chart x, across the whole Monday to Sunday', () => {
+    const l = load(state({ a: task('a', 12) }, [['a']]));
+    const scale = makeScale(D('2026-11-02'), 10);
+    expect(loadWeekAt(l, 0, scale)!.week).toBe(W);
+    expect(loadWeekAt(l, 69, scale)!.week).toBe(W);
+    expect(loadWeekAt(l, 70, scale)!.week).toBe(W + 1);
+    expect(loadWeekAt(l, 100000, scale)).toBeNull();
+  });
+
   it('has one entry per week of the span, at full capacity with no holidays', () => {
     const { weeks } = load(state({ a: task('a', 12) }, [['a']]));
     expect(weeks.map(w => w.week)).toEqual([W, W + 1, W + 2, W + 3]);

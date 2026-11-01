@@ -4,14 +4,14 @@ import type { PanelProps } from './parts';
 
 type RailProps = Omit<PanelProps, 'id'> & { ui: UiState; roots: string[] };
 
-function Panel({ st, a, ui, roots, act, readTodos }: RailProps) {
+function Panel({ st, a, ui, roots, act, readTodos, previewing }: RailProps) {
   const { sel, focus } = ui;
-  const common = { st, a, act, readTodos };
-  if (sel && st.items[sel].kind === 'ext') return <ExternalPanel {...common} id={sel} />;
-  if (sel && !a.K[sel]) return <TaskPanel {...common} id={sel} />;
+  const common = { st, a, act, readTodos, previewing };
+  if (sel && st.items[sel].kind === 'ext') return <ExternalPanel {...common} id={sel} key={sel} />;
+  if (sel && !a.K[sel]) return <TaskPanel {...common} id={sel} key={sel} />;
   const id = sel ?? focus;
   if (!id) return <AllProjects st={st} a={a} act={act} roots={roots} />;
-  return <Overview {...common} id={id} selected={!!sel} focused={focus === id} />;
+  return <Overview {...common} id={id} key={id} selected={!!sel} focused={focus === id} />;
 }
 
 export function Rail(props: RailProps) {

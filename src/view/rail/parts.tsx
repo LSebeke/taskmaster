@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import type { Analysis, State, Todo } from '../../engine';
+import type { Edit } from '../../store/edits';
 import { fmtD, h1, noteName } from '../format';
 import { statusOf } from '../explain';
 
@@ -8,6 +9,7 @@ export interface RailActions {
   select(id: string | null): void;
   focus(id: string): void;
   openNote(path: string): void;
+  apply(edit: Edit): void;
 }
 
 export interface PanelProps {
@@ -16,6 +18,8 @@ export interface PanelProps {
   id: string;
   act: RailActions;
   readTodos(id: string): Promise<Todo[]>;
+  /** A drag is showing a schedule that is not stored. */
+  previewing: boolean;
 }
 
 export const Card = ({ tone, children }: { tone?: string; children: ComponentChildren }) => <div class={`tm-card${tone ? ` tm-card-${tone}` : ''}`}>{children}</div>;

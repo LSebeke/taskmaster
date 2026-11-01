@@ -1,11 +1,15 @@
 import { render } from 'preact';
-import { analyze, type Analysis, type State, type Todo } from '../engine';
+import { analyze, isoWeekKey, type Analysis, type State, type Todo } from '../engine';
+import { setWeekCapacity, setWeekly, type Edit } from '../store/edits';
 import { describeChanges } from './changes';
-import { Legend, StatusBar, TopBar, TreeFoot, TreeHead } from './chrome';
+import { Legend, StatusBar, TopBar, TreeFoot, TreeHead, WeekEdit } from './chrome';
 import { tooltipLines } from './explain';
+import { h1 } from './format';
 import { drawGantt } from './gantt/draw';
+import { dotAt, forecastBar } from './gantt/drag';
+import { Gestures, type GestureHost, type Hot, type Spot } from './gantt/gestures';
 import { hitTest } from './gantt/hit';
-import { buildLoad, LOAD_DAYS, type Load } from './gantt/load';
+import { buildLoad, LOAD_DAYS, loadWeekAt, type Load, type LoadWeek } from './gantt/load';
 import { readPalette, type Palette } from './gantt/palette';
 import { chartSpan, clampPpd, makeScale, zoomAround, type TimeScale } from './gantt/scale';
 import { buildScene, projectRoots, type Bar, type Scene } from './gantt/scene';
@@ -17,8 +21,11 @@ import { defaultUi, escape, goUp, pruneUi, setFocus, toggleCollapsed, toggleHidd
 /** The slice of TaskmasterStore the view reads. */
 export interface ViewStore {
   readonly state: State;
-  subscribe(listener: (state: State) => void): () => void;
+  readonly undoLabel: string | null;
+  subscribe(listener: (state: State, label?: string) => void): () => void;
   readTodos(id: string): Promise<Todo[]>;
+  apply(edit: Edit): boolean;
+  undo(): Promise<string | null>;
 }
 
 export interface ViewHost {
@@ -29,6 +36,7 @@ const WHEEL_IN = 1.15;
 const WHEEL_OUT = 0.87;
 const TODAY_AT = 0.22;
 const TIP_W = 310;
+const WEEK_EDIT_W = 130;
 /** Room under the last row, so it clears the load strip. */
 const TAIL = 12;
 
@@ -46,6 +54,12 @@ export class GanttApp {
 
   private ui: UiState = defaultUi();
   private a: Analysis;
+  /** A schedule a drag is showing. The store only hears of it on drop. */
+  private shown: State | null = null;
+  /** The analysis of the stored state while `shown` is up. */
+  private stored: Analysis | null = null;
+  private hot: Hot = { row: null, link: null };
+  private gestures: Gestures;
   private rows: Row[] = [];
   private scene!: Scene;
   private load!: Load;
@@ -74,6 +88,7 @@ export class GanttApp {
   private rail: HTMLElement;
   private status: HTMLElement;
   private tip: HTMLElement;
+  private overlay: HTMLElement;
   private hierarchy: Hierarchy;
 
   constructor(
@@ -99,16 +114,18 @@ export class GanttApp {
     this.canvas = div(this.chart, 'tm-canvas', 'canvas') as HTMLCanvasElement;
     this.scroller = div(this.chart, 'tm-scroller');
     this.spacer = div(this.scroller, 'tm-spacer');
+    this.overlay = div(this.chart, 'tm-overlay');
     this.rail = div(main, 'tm-rail');
     this.status = div(this.root, 'tm-status');
     this.tip = div(this.root, 'tm-tip');
 
     this.pal = readPalette(this.root);
     this.a = this.compute();
+    this.gestures = new Gestures(this.gestureHost());
     this.listen();
     this.rebuild();
     this.centreToday();
-    this.unsubscribe = store.subscribe(() => this.onStore());
+    this.unsubscribe = store.subscribe((_, label) => this.onStore(label));
     this.resize = new ResizeObserver(() => this.onResize());
     this.resize.observe(this.chart);
   }
@@ -118,7 +135,7 @@ export class GanttApp {
     this.unsubscribe();
     this.resize.disconnect();
     cancelAnimationFrame(this.raf);
-    for (const host of [this.top, this.legend, this.treeHead, this.treeFoot, this.rail, this.status]) render(null, host);
+    for (const host of [this.top, this.legend, this.treeHead, this.treeFoot, this.rail, this.status, this.overlay]) render(null, host);
     this.root.remove();
   }
 
@@ -127,12 +144,17 @@ export class GanttApp {
   }
 
   private get st() {
-    return this.store.state;
+    return this.shown ?? this.store.state;
   }
 
-  /** Esc: closes what is open, then clears selection, then goes up. */
+  /** Esc: drops a gesture, closes what is open, then clears selection, then goes up. */
   escape() {
+    if (this.gestures.cancel()) return;
     this.setUi(escape(this.ui, this.st));
+  }
+
+  undo() {
+    if (!this.gestures.active) void this.store.undo();
   }
 
   refreshTheme() {
@@ -140,15 +162,19 @@ export class GanttApp {
     this.paint();
   }
 
-  /** Screen position of an item's bar, or null when it has none on the chart. */
-  barRect(id: string): { x: number; y: number } | null {
+  /** Screen geometry of an item's bar, or null when it has none on the chart. The forecast bar with `fc`. */
+  barRect(id: string, fc = false): { x: number; y: number; x0: number; x1: number; dot: { x: number; y: number } } | null {
     const i = this.scene.rows.findIndex(r => r.id === id);
-    const bar = this.scene.rows[i]?.bars.at(-1);
+    const row = this.scene.rows[i];
+    const bar = fc ? forecastBar(row) : row?.bars.at(-1);
     if (!bar) return null;
     const box = this.scroller.getBoundingClientRect();
-    const x = (this.scale.x(bar.d0) + this.scale.x(bar.d1)) / 2 - this.scroller.scrollLeft;
-    const y = HEAD + i * ROW - this.scroller.scrollTop + bar.top + bar.h / 2;
-    return { x: box.left + x, y: box.top + y };
+    const left = box.left - this.scroller.scrollLeft;
+    const top = box.top + HEAD + i * ROW - this.scroller.scrollTop;
+    const x0 = left + this.scale.x(bar.d0);
+    const x1 = left + this.scale.x(bar.d1);
+    const dot = dotAt(bar, this.scale);
+    return { x: (x0 + x1) / 2, y: top + bar.top + bar.h / 2, x0, x1, dot: { x: left + dot.x, y: top + dot.y } };
   }
 
   private compute(): Analysis {
@@ -156,14 +182,91 @@ export class GanttApp {
     return analyze(this.st);
   }
 
-  private onStore() {
+  private onStore(label?: string) {
+    // Notes changing under a drag wait for the drop: previews always start from the store.
+    if (this.shown) return;
     const before = this.a;
     const had = Object.keys(before.by).length > 0;
     this.a = this.compute();
-    if (had) this.message = describeChanges(this.st, before, this.a);
+    if (had) this.message = describeChanges(this.st, before, this.a, label);
     this.ui = pruneUi(this.ui, this.st);
     this.rebuild();
     if (!this.centred) this.centreToday();
+  }
+
+  private gestureHost(): GestureHost {
+    const app = this;
+    return {
+      el: this.scroller,
+      get state() {
+        return app.store.state;
+      },
+      get analysis() {
+        return app.stored ?? app.a;
+      },
+      get scene() {
+        return app.scene;
+      },
+      get scale() {
+        return app.scale;
+      },
+      spot: e => this.spotAt(e),
+      hit: e => this.hitAt(e),
+      preview: st => this.preview(st),
+      commit: edit => this.commit(edit),
+      consequence: (label, edit) => this.consequence(label, edit),
+      say: text => this.say(text),
+      paintHot: hot => {
+        this.hot = hot;
+        this.paint();
+      },
+    };
+  }
+
+  /** Recalculates live without storing. Rows and chart span hold still, so nothing shifts. */
+  private preview(st: State | null) {
+    if (!st) {
+      if (!this.shown) return;
+      this.shown = null;
+      this.a = this.stored!;
+      this.stored = null;
+      // Notes that changed mid-drag were held back.
+      const { message } = this;
+      this.onStore();
+      this.message = message;
+      return this.renderStatus();
+    }
+    this.stored ??= this.a;
+    this.shown = st;
+    this.a = this.compute();
+    this.rebuild();
+  }
+
+  private commit(edit: Edit) {
+    if (this.shown) {
+      this.shown = null;
+      this.a = this.stored!;
+      this.stored = null;
+    }
+    if (!this.store.apply(edit)) this.onStore();
+  }
+
+  /** The status bar line for an edit, before making it. Without an edit, for the schedule on show. */
+  private consequence(label: string, edit?: Edit): string {
+    const before = this.stored ?? this.a;
+    if (!edit) return describeChanges(this.st, before, this.a, label);
+    const draft = structuredClone(this.store.state);
+    edit(draft);
+    return describeChanges(draft, before, analyze(draft), label);
+  }
+
+  private say(text: string) {
+    this.message = text;
+    this.renderStatus();
+  }
+
+  private renderStatus() {
+    render(<StatusBar st={this.st} a={this.a} message={this.message} onCapacity={h => this.store.apply(setWeekly(h))} />, this.status);
   }
 
   private setUi(next: UiState) {
@@ -248,6 +351,8 @@ export class GanttApp {
         onFocus={id => this.focusOn(id)}
         onZoom={p => this.setZoom(p, this.chart.clientWidth / 2)}
         onAxis={axis => this.setUi({ ...this.ui, axis })}
+        undoLabel={this.store.undoLabel}
+        onUndo={() => this.undo()}
       />,
       this.top,
     );
@@ -269,15 +374,43 @@ export class GanttApp {
         ui={ui}
         roots={roots}
         readTodos={id => this.store.readTodos(id)}
+        previewing={!!this.shown}
         act={{
           select: id => this.selectAndReveal(id),
           focus: id => this.focusOn(id),
           openNote: path => this.view.openNote(path),
+          apply: edit => void this.store.apply(edit),
         }}
       />,
       this.rail,
     );
-    render(<StatusBar st={st} a={a} message={this.message} />, this.status);
+    this.renderStatus();
+    this.renderWeekEdit();
+  }
+
+  private renderWeekEdit() {
+    const week = this.ui.weekEdit;
+    const row = week != null ? this.load.weeks.find(w => w.week === week) : undefined;
+    render(
+      row ? (
+        <WeekEdit
+          key={week}
+          week={row.week}
+          value={row.override}
+          weekly={this.st.settings.weekly}
+          left={Math.max(4, Math.min(this.scale.x(row.start) - this.scroller.scrollLeft, this.chart.clientWidth - WEEK_EDIT_W))}
+          onCommit={hours => this.commitWeek(row.week, hours)}
+        />
+      ) : null,
+      this.overlay,
+    );
+  }
+
+  private commitWeek(week: number, hours: number | null) {
+    // Leaving the field also lands here, and Esc has already closed it by then.
+    if (this.ui.weekEdit !== week) return;
+    this.setUi({ ...this.ui, weekEdit: null });
+    this.store.apply(setWeekCapacity(week, hours));
   }
 
   private setZoom(ppd: number, anchor: number) {
@@ -337,15 +470,29 @@ export class GanttApp {
       height,
       scrollLeft: scroller.scrollLeft,
       scrollTop: scroller.scrollTop,
+      hot: this.hot,
     });
   }
 
-  private hitAt(e: MouseEvent): Bar | null {
+  /** Chart position among the rows, or null over the axis or the load strip. */
+  private spotAt(e: MouseEvent): Spot {
     const box = this.scroller.getBoundingClientRect();
-    const x = e.clientX - box.left;
     const y = e.clientY - box.top;
     if (y < HEAD || y > this.chart.clientHeight - this.loadHeight) return null;
-    return hitTest(this.scene, this.scale, x + this.scroller.scrollLeft, y - HEAD + this.scroller.scrollTop);
+    return { x: e.clientX - box.left + this.scroller.scrollLeft, y: y - HEAD + this.scroller.scrollTop };
+  }
+
+  private hitAt(e: MouseEvent): Bar | null {
+    const p = this.spotAt(e);
+    return p ? hitTest(this.scene, this.scale, p.x, p.y) : null;
+  }
+
+  /** The load strip week under the pointer. */
+  private weekAt(e: MouseEvent): LoadWeek | null {
+    if (!this.ui.show.load) return null;
+    const box = this.scroller.getBoundingClientRect();
+    if (e.clientY - box.top <= this.chart.clientHeight - this.loadHeight) return null;
+    return loadWeekAt(this.load, e.clientX - box.left + this.scroller.scrollLeft, this.scale);
   }
 
   private hideTip() {
@@ -353,8 +500,12 @@ export class GanttApp {
   }
 
   private showTip(id: string, e: MouseEvent) {
-    const { tip } = this;
     const [title, ...lines] = tooltipLines(this.st, this.a, id);
+    this.tipLines(title, lines, e);
+  }
+
+  private tipLines(title: string, lines: string[], e: MouseEvent) {
+    const { tip } = this;
     tip.replaceChildren();
     const doc = tip.ownerDocument;
     const head = doc.createElement('b');
@@ -370,11 +521,31 @@ export class GanttApp {
     tip.style.top = `${e.clientY + 14}px`;
   }
 
+  private onScroll() {
+    this.schedulePaint();
+    if (this.ui.weekEdit != null) this.setUi({ ...this.ui, weekEdit: null });
+  }
+
+  private onPointerMove(e: PointerEvent) {
+    if (this.gestures.move(e)) return this.hideTip();
+    const week = this.weekAt(e);
+    if (week) {
+      this.gestures.hover(null, null);
+      this.scroller.style.cursor = 'pointer';
+      const hours = week.override != null ? `${h1(week.override)}h override` : `${h1(week.cap)}h`;
+      return this.tipLines(`CW${isoWeekKey(week.week).slice(-2)}`, [`Capacity ${hours}, ${h1(week.total)}h booked`, 'Click to edit'], e);
+    }
+    const bar = this.hitAt(e);
+    this.scroller.style.cursor = this.gestures.hover(e, bar);
+    if (bar) this.showTip(bar.id, e);
+    else this.hideTip();
+  }
+
   private listen() {
     const { signal } = this.stop;
     const { scroller, tree } = this;
     this.hierarchy.listen(signal);
-    scroller.addEventListener('scroll', () => this.schedulePaint(), { passive: true, signal });
+    scroller.addEventListener('scroll', () => this.onScroll(), { passive: true, signal });
     tree.addEventListener(
       'wheel',
       e => {
@@ -394,19 +565,30 @@ export class GanttApp {
       { passive: false, signal },
     );
     scroller.addEventListener(
-      'pointermove',
+      'pointerdown',
       e => {
-        const bar = this.hitAt(e);
-        scroller.style.cursor = bar ? 'pointer' : '';
-        if (bar) this.showTip(bar.id, e);
-        else this.hideTip();
+        this.hideTip();
+        this.gestures.down(e);
       },
       { signal },
     );
-    scroller.addEventListener('pointerleave', () => this.hideTip(), { signal });
+    scroller.addEventListener('pointerup', e => this.gestures.up(e), { signal });
+    scroller.addEventListener('pointercancel', () => this.gestures.cancel(), { signal });
+    scroller.addEventListener('pointermove', e => this.onPointerMove(e), { signal });
+    scroller.addEventListener(
+      'pointerleave',
+      () => {
+        this.hideTip();
+        if (!this.gestures.active) this.gestures.hover(null, null);
+      },
+      { signal },
+    );
     scroller.addEventListener(
       'click',
       e => {
+        if (this.gestures.takeClick()) return;
+        const week = this.weekAt(e);
+        if (week) return this.setUi({ ...this.ui, weekEdit: week.week });
         const bar = this.hitAt(e);
         if (bar) this.select(bar.id);
       },

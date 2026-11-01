@@ -1,4 +1,5 @@
-import type { Analysis, State } from '../engine';
+import { isoWeekKey, type Analysis, type State } from '../engine';
+import { NumField } from './rail/fields';
 import { hiddenList } from './rows';
 import { EYE, EYE_OFF } from './hierarchy';
 import { ZOOMS, layers, type Axis, type UiState } from './ui-state';
@@ -10,9 +11,11 @@ export interface TopBarProps {
   onFocus(id: string | null): void;
   onZoom(ppd: number): void;
   onAxis(axis: Axis): void;
+  undoLabel: string | null;
+  onUndo(): void;
 }
 
-export function TopBar({ st, ui, onUp, onFocus, onZoom, onAxis }: TopBarProps) {
+export function TopBar({ st, ui, onUp, onFocus, onZoom, onAxis, undoLabel, onUndo }: TopBarProps) {
   const path: string[] = [];
   for (let i = ui.focus; i; i = st.items[i].parent) path.unshift(i);
   return (
@@ -47,6 +50,9 @@ export function TopBar({ st, ui, onUp, onFocus, onZoom, onAxis }: TopBarProps) {
           CW
         </button>
       </span>
+      <button class="tm-undo" disabled={!undoLabel} title={undoLabel ? `Undo: ${undoLabel} (Ctrl+Z)` : 'Nothing to undo'} onClick={onUndo}>
+        Undo
+      </button>
     </>
   );
 }
@@ -92,12 +98,12 @@ export function Legend({ st, a, ui }: { st: State; a: Analysis; ui: UiState }) {
           today
         </span>
       )}
-      <span class="tm-hint">Click: select. ⤢ Focus: zoom chart. Double-click: open note. Ctrl+wheel: zoom. Esc: up.</span>
+      <span class="tm-hint">Click: select. ⤢ Focus: zoom chart. Drag forecast bar: pin. Drag the dot: add dependency. Double-click: open note. Ctrl+wheel: zoom. Esc: up.</span>
     </>
   );
 }
 
-export function StatusBar({ st, a, message }: { st: State; a: Analysis; message: string }) {
+export function StatusBar({ st, a, message, onCapacity }: { st: State; a: Analysis; message: string; onCapacity(hours: number): void }) {
   const n = a.conflicts.length;
   return (
     <>
@@ -107,7 +113,9 @@ export function StatusBar({ st, a, message }: { st: State; a: Analysis; message:
           ⚠ {n} conflict{n > 1 ? 's' : ''}
         </span>
       )}
-      <span>{st.settings.weekly} h/week</span>
+      <label class="tm-cap">
+        <NumField class="tm-cap-in" label="Weekly capacity" value={st.settings.weekly} min={1} step={1} onCommit={h => h != null && onCapacity(h)} /> h/week
+      </label>
     </>
   );
 }
@@ -150,11 +158,31 @@ export function TreeHead({ st, ui, onToggleList, onRestore }: TreeHeadProps) {
   );
 }
 
+export interface WeekEditProps {
+  week: number;
+  /** Override, or null. */
+  value: number | null;
+  /** Hours the week follows without one. */
+  weekly: number;
+  left: number;
+  onCommit(hours: number | null): void;
+}
+
+/** Edits one week's capacity over the load strip. Clearing the field removes the override. */
+export function WeekEdit({ week, value, weekly, left, onCommit }: WeekEditProps) {
+  return (
+    <div class="tm-week-edit" style={{ left: `${left}px` }}>
+      <span>CW{isoWeekKey(week).slice(-2)}</span>
+      <NumField autoFocus clearable label="Hours this week" value={value} step={1} placeholder={String(weekly)} onCommit={onCommit} /> h
+    </div>
+  );
+}
+
 export function TreeFoot({ st, roots }: { st: State; roots: string[] }) {
   return (
     <>
       <b>Weekly load</b>
-      <div class="tm-sub tm-small">Line: capacity. Labelled weeks are overrides.</div>
+      <div class="tm-sub tm-small">Line: capacity. Labelled weeks are overrides. Click a week to edit.</div>
       <div class="tm-foot-roots">
         {roots.map((r, i) => (
           <span class="tm-small" key={r}>

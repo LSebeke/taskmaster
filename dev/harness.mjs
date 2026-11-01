@@ -62,7 +62,13 @@ const loadHash = page =>
     for (let i = 0; i < d.length; i += 4) h = (h * 31 + d[i] + d[i + 1] * 3 + d[i + 2] * 7) | 0;
     return h;
   });
-const barPoint = (page, id) => page.evaluate(i => window.tm.view.gantt.barRect(i), id);
+const barPoint = (page, id, fc = false) => page.evaluate(([i, f]) => window.tm.view.gantt.barRect(window.tm.path(i), f), [id, fc]);
+const pathOf = (page, id) => page.evaluate(i => window.tm.path(i), id);
+const note = (page, id) => page.evaluate(i => window.tm.note(i), id);
+/** Lets writes, cache echoes and the recompute window pass. */
+const settle = page => page.evaluate(() => new Promise(r => setTimeout(r, 120)));
+const runs = page => page.evaluate(() => window.tm.view.gantt.recomputes);
+const status = page => page.locator('.tm-changes').textContent();
 
 let checks = 0;
 const check = async (name, fn) => {
@@ -185,14 +191,14 @@ const check = async (name, fn) => {
     await page.mouse.click(p.x, p.y);
     assert.equal(await railTitle(page), 'ETL jobs');
     await page.mouse.dblclick(p.x, p.y);
-    assert.deepEqual(await page.evaluate(() => window.tm.app.workspace.opened), ['dp.etl']);
+    assert.deepEqual(await page.evaluate(() => window.tm.app.workspace.opened), [await pathOf(page, 'dp.etl')]);
     await page.mouse.move(5, 5);
     assert.equal(await tip.isVisible(), false);
     await page.keyboard.press('Escape');
   });
   await check('row double-click opens the note', async () => {
     await rowByTitle(page, 'Runbook').locator('.tm-t').dblclick();
-    assert.deepEqual(await page.evaluate(() => window.tm.app.workspace.opened), ['dp.etl', 'dp.doc']);
+    assert.deepEqual(await page.evaluate(() => window.tm.app.workspace.opened), [await pathOf(page, 'dp.etl'), await pathOf(page, 'dp.doc')]);
     await page.keyboard.press('Escape');
   });
   await check('external: selecting shades its dates', async () => {
@@ -243,24 +249,28 @@ const check = async (name, fn) => {
   });
   await check('load strip: override steps the line and gets a label', async () => {
     const before = await loadHash(page);
-    await page.evaluate(() => {
-      const s = window.tm.store.state.settings;
-      const w = Math.floor((s.holidays[0] + 3) / 7);
-      s.weekCap = { [w - 6]: 24, [w - 3]: 0 };
-      window.tm.store.emit();
-    });
+    const edit = (h6, h3) => page.evaluate(([a, b]) => {
+      const { store, edits } = window.tm;
+      const w = Math.floor((store.state.settings.holidays[0] + 3) / 7);
+      store.apply(edits.setWeekCapacity(w - 6, a));
+      store.apply(edits.setWeekCapacity(w - 3, b));
+    }, [h6, h3]);
+    await edit(24, 0);
     assert.notEqual(await loadHash(page), before);
     await shoot(page, 'override-light');
-    await page.evaluate(() => { window.tm.store.state.settings.weekCap = {}; window.tm.store.emit(); });
+    await edit(null, null);
   });
   await check('status bar reports a store change', async () => {
-    await page.evaluate(() => { window.tm.store.state.items['dp.etl'].left += 40; window.tm.store.emit(); });
+    await page.evaluate(() => { const { tm } = window; tm.vault.change(tm.path('dp.etl'), { ...tm.note('dp.etl'), 'tm-left': 64 }); });
+    await settle(page);
     assert.match(await page.locator('.tm-status').textContent(), /Forecast moved on \d+ task/);
-    await page.evaluate(() => { window.tm.store.state.items['dp.etl'].left -= 40; window.tm.store.emit(); });
+    await page.evaluate(() => { const { tm } = window; tm.vault.change(tm.path('dp.etl'), { ...tm.note('dp.etl'), 'tm-left': 24 }); });
+    await settle(page);
   });
   await check('selection on a deleted note clears', async () => {
     await rowByTitle(page, 'Runbook').locator('.tm-t').click();
-    await page.evaluate(() => { const s = window.tm.store.state; delete s.items['dp.doc']; s.tiers = s.tiers.map(t => t.filter(i => i !== 'dp.doc')); window.tm.store.emit(); });
+    await page.evaluate(() => window.tm.vault.remove(window.tm.path('dp.doc')));
+    await settle(page);
     assert.equal(await railTitle(page), 'All projects');
   });
   await check('theme change reaches the canvas', async () => {
@@ -270,6 +280,334 @@ const check = async (name, fn) => {
       window.tm.app.workspace.trigger('css-change');
     });
     assert.notEqual(await canvasHash(page), before);
+  });
+  await page.close();
+}
+
+// Editing: everything below goes through real mouse and keyboard, the real store and a fake vault.
+{
+  const tall = { width: 1600, height: 1300 };
+  const page = await open('theme=light', 'light', tall);
+  const select = title => rowByTitle(page, title).locator('.tm-t').click();
+  const undo = async () => {
+    await page.mouse.move(5, 5);
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('Control+z');
+    await settle(page);
+  };
+  const dragTo = async (from, to, steps = 12) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps });
+  };
+  const row = title => rowByTitle(page, title);
+  const ppd = 7;
+
+  await check('hover shows the link dot; drag a forecast body: live, overlays, pins both on drop, no second recalculation', async () => {
+    const id = 'gw.fw.drv.flash';
+    const bar = await barPoint(page, id, true);
+    const topBefore = await page.locator('.tm-top').boundingBox();
+    const treeBefore = await page.locator('.tm-tree').boundingBox();
+    const hash = await canvasHash(page);
+    await page.mouse.move(bar.x, bar.y);
+    await shoot(page, 'drag-hover');
+    await dragTo(bar, { x: bar.x + 14 * ppd, y: bar.y });
+    await shoot(page, 'drag-body-mid');
+    assert.match(await status(page), /Flash log storage: .* → .*: (forecast moved|no forecast change)/);
+    assert.notEqual(await canvasHash(page), hash);
+    assert.deepEqual(await page.locator('.tm-top').boundingBox(), topBefore);
+    assert.deepEqual(await page.locator('.tm-tree').boundingBox(), treeBefore);
+    assert.equal((await note(page, id))['tm-pin-start'], undefined, 'nothing written mid-drag');
+    const mid = await barPoint(page, id, true);
+    assert.ok(Math.abs(mid.x - (bar.x + 14 * ppd)) < 60, `bar follows: ${mid.x} vs ${bar.x}`);
+    await page.mouse.up();
+    const after = await runs(page);
+    await settle(page);
+    assert.equal(await runs(page), after, 'echo recalculated');
+    const fm = await note(page, id);
+    assert.ok(fm['tm-pin-start'] && fm['tm-pin-end'], JSON.stringify(fm));
+    await shoot(page, 'drag-body-after');
+    assert.match(await page.locator('.tm-undo').getAttribute('title'), /Dragged Flash log storage/);
+    await undo();
+    const back = await note(page, id);
+    assert.equal(back['tm-pin-start'], undefined);
+    assert.equal(back['tm-pin-end'], undefined);
+    assert.match(await status(page), /^Undid: Dragged Flash log storage/);
+  });
+
+  await check('drag the end edge: pins only that edge', async () => {
+    const id = 'dp.doc';
+    const bar = await barPoint(page, id, true);
+    assert.ok(bar.x1 - bar.x0 > 18, `bar is ${bar.x1 - bar.x0}px`);
+    await dragTo({ x: bar.x1 - 2, y: bar.y }, { x: bar.x1 + 10 * ppd, y: bar.y });
+    await shoot(page, 'drag-edge-mid');
+    await page.mouse.up();
+    await settle(page);
+    const fm = await note(page, id);
+    assert.ok(fm['tm-pin-end'], JSON.stringify(fm));
+    assert.equal(fm['tm-pin-start'], undefined);
+    await undo();
+  });
+
+  await check('an edge cannot pass the other edge', async () => {
+    const id = 'dp.doc';
+    const bar = await barPoint(page, id, true);
+    await dragTo({ x: bar.x1 - 2, y: bar.y }, { x: bar.x0 - 40 * ppd, y: bar.y });
+    await page.mouse.up();
+    await settle(page);
+    const pinE = await page.evaluate(i => window.tm.store.state.items[window.tm.path(i)].pinE, id);
+    const startDay = Math.round(bar.x0 / ppd);
+    const pinnedAt = Math.round((await barPoint(page, id, true)).x1 / ppd) - 1;
+    assert.ok(pinE != null && pinnedAt >= startDay, `end pinned before start: ${pinnedAt} < ${startDay}`);
+    await undo();
+    const s = await barPoint(page, id, true);
+    await dragTo({ x: s.x0 + 2, y: s.y }, { x: s.x1 + 60 * ppd, y: s.y });
+    await page.mouse.up();
+    await settle(page);
+    const moved = await barPoint(page, id, true);
+    assert.ok(moved.x0 <= s.x1 - ppd + 1, `start passed end: ${moved.x0} vs ${s.x1}`);
+    await undo();
+  });
+
+  await check('external bar drags, moving what depends on it; Esc cancels a drag', async () => {
+    const id = 'x.bench';
+    const before = await note(page, id);
+    const bar = await barPoint(page, id, true);
+    await dragTo(bar, { x: bar.x + 21 * ppd, y: bar.y });
+    await shoot(page, 'drag-external-mid');
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await settle(page);
+    assert.deepEqual(await note(page, id), before);
+    await dragTo(bar, { x: bar.x + 21 * ppd, y: bar.y });
+    await page.mouse.up();
+    await settle(page);
+    const fm = await note(page, id);
+    assert.equal(fm['tm-pin-start'], '2026-12-21');
+    assert.equal(fm['tm-pin-end'], '2026-12-25');
+    await shoot(page, 'drag-external-after');
+    await undo();
+    assert.deepEqual(await note(page, id), before);
+  });
+
+  await check('plan bars, parents, milestones and finished tasks do not drag', async () => {
+    const was = await page.evaluate(() => window.tm.store.undoLabel);
+    for (const [id, fc] of [['dp.etl', false], ['gw.fw', true], ['gw.fw', false], ['gw.val.rc', true], ['dp.sch', true]]) {
+      const bar = await barPoint(page, id, fc);
+      assert.ok(bar, id);
+      await dragTo(bar, { x: bar.x + 10 * ppd, y: bar.y }, 6);
+      await page.mouse.up();
+    }
+    await settle(page);
+    assert.equal(await page.evaluate(() => window.tm.store.undoLabel), was);
+    await page.keyboard.press('Escape');
+  });
+
+  await check('a click on a bar still selects, and double-click opens the note', async () => {
+    const bar = await barPoint(page, 'rig.fx.py', true);
+    await page.mouse.click(bar.x, bar.y);
+    assert.equal(await railTitle(page), 'Python instrument driver');
+    await page.mouse.dblclick(bar.x, bar.y);
+    assert.equal((await page.evaluate(() => window.tm.app.workspace.opened)).at(-1), await pathOf(page, 'rig.fx.py'));
+    assert.equal(await page.evaluate(() => window.tm.store.undoLabel), null);
+    await page.keyboard.press('Escape');
+  });
+
+  await check('drag from the dot: shows the consequence, adds the dependency, undoes', async () => {
+    const from = await barPoint(page, 'dp.doc', true);
+    const to = await barPoint(page, 'dp.etl', true);
+    await dragTo(from.dot, { x: to.x, y: to.y });
+    assert.match(await status(page), /ETL jobs would wait for Runbook/);
+    await shoot(page, 'link-legal-mid');
+    await page.mouse.up();
+    await settle(page);
+    const fm = await note(page, 'dp.etl');
+    assert.deepEqual(fm['tm-deps'], ['[[Runbook]]']);
+    assert.match(await status(page), /ETL jobs now waits for Runbook/);
+    await shoot(page, 'link-after');
+    await undo();
+    assert.equal((await note(page, 'dp.etl'))['tm-deps'], undefined);
+  });
+
+  await check('drag from the dot onto an illegal target refuses and says why', async () => {
+    const from = await barPoint(page, 'dp.cut', true);
+    const to = await barPoint(page, 'dp.etl', true);
+    const was = await page.evaluate(() => window.tm.store.undoLabel);
+    await dragTo(from.dot, { x: to.x, y: to.y });
+    assert.match(await status(page), /⚠ That would create a dependency loop/);
+    await shoot(page, 'link-illegal-mid');
+    await page.mouse.up();
+    await settle(page);
+    assert.equal(await page.evaluate(() => window.tm.store.undoLabel), was);
+    const ext = await barPoint(page, 'x.bench', true);
+    await dragTo(from.dot, { x: ext.x, y: ext.y });
+    assert.match(await status(page), /External items have no dependencies/);
+    await page.mouse.up();
+    assert.equal(await page.evaluate(() => window.tm.store.undoLabel), was);
+  });
+
+  await check('rail: total, left, log with date, edit and delete an entry', async () => {
+    await select('Runbook');
+    await page.getByLabel('Total hours').fill('10');
+    await page.getByLabel('Total hours').press('Enter');
+    await settle(page);
+    let fm = await note(page, 'dp.doc');
+    assert.equal(fm['tm-left'], 10);
+    assert.equal(fm['tm-estimate'], 6);
+    await page.getByLabel('Hours left', { exact: true }).fill('8');
+    await page.getByLabel('Hours left', { exact: true }).blur();
+    await settle(page);
+    assert.equal((await note(page, 'dp.doc'))['tm-left'], 8);
+    await page.getByLabel('Hours to log').fill('3');
+    await page.getByLabel('Log date').fill('2026-11-03');
+    await page.locator('.tm-log-form button').click();
+    await settle(page);
+    fm = await note(page, 'dp.doc');
+    assert.deepEqual(fm['tm-log'], ['2026-11-03 3']);
+    assert.equal(fm['tm-left'], 5);
+    await shoot(page, 'rail-log');
+    await page.getByLabel('Hours logged 3 Nov').fill('1');
+    await page.getByLabel('Hours logged 3 Nov').blur();
+    await settle(page);
+    assert.equal((await note(page, 'dp.doc'))['tm-left'], 7);
+    await page.getByLabel('Delete log entry 3 Nov').click();
+    await settle(page);
+    fm = await note(page, 'dp.doc');
+    assert.deepEqual(fm['tm-log'], []);
+    assert.equal(fm['tm-left'], 8);
+  });
+
+  await check('rail: Auto/Pinned per edge, deadline, scope', async () => {
+    const edge = name => page.getByRole('group', { name: `${name} edge` });
+    await edge('Start').getByText('Pinned').click();
+    await settle(page);
+    assert.ok((await note(page, 'dp.doc'))['tm-pin-start']);
+    await page.getByLabel('Start pin').fill('2026-11-20');
+    await page.getByLabel('Start pin').blur();
+    await settle(page);
+    assert.equal((await note(page, 'dp.doc'))['tm-pin-start'], '2026-11-20');
+    await edge('Start').getByText('Auto').click();
+    await settle(page);
+    assert.equal((await note(page, 'dp.doc'))['tm-pin-start'], undefined);
+    await edge('End').getByText('Pinned').click();
+    await edge('End').getByText('Auto').click();
+    await page.getByLabel('Deadline').fill('2026-12-11');
+    await page.getByLabel('Deadline').blur();
+    await page.getByLabel('Scope').selectOption('could');
+    await settle(page);
+    const fm = await note(page, 'dp.doc');
+    assert.equal(fm['tm-deadline'], '2026-12-11');
+    assert.equal(fm['tm-scope'], 'could');
+    await shoot(page, 'rail-edited');
+  });
+
+  await check('rail: picker sorted, without cycles; add and remove a dependency', async () => {
+    const pick = page.getByLabel('Add dependency');
+    const groups = await pick.locator('optgroup').evaluateAll(g => g.map(x => x.label));
+    assert.deepEqual(groups, [...groups].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })));
+    assert.ok(groups.includes('External'));
+    assert.ok(groups.includes('Sensor Gateway v2 › Firmware › Drivers'), groups.join('|'));
+    const items = await pick.locator('optgroup[label="Sensor Gateway v2 › Firmware › Drivers"] option').allTextContents();
+    assert.deepEqual(items, ['CAN stack port', 'Flash log storage', 'SPI sensor driver']);
+    await select('ETL jobs');
+    const options = await pick.locator('option').allTextContents();
+    assert.ok(!options.includes('Production cutover'), 'cycle offered');
+    assert.ok(!options.includes('ETL jobs'), 'itself offered');
+    await pick.selectOption({ label: 'CAN stack port' });
+    await settle(page);
+    assert.deepEqual((await note(page, 'dp.etl'))['tm-deps'], ['[[CAN stack port]]']);
+    await page.getByLabel('Remove dependency on CAN stack port').click();
+    await settle(page);
+    assert.deepEqual((await note(page, 'dp.etl'))['tm-deps'], []);
+    await page.keyboard.press('Escape');
+  });
+
+  await check('parent details: budget, deadline and dependencies', async () => {
+    await select('Firmware');
+    await page.getByLabel('Budget').fill('120');
+    await page.getByLabel('Budget').blur();
+    await settle(page);
+    assert.equal((await note(page, 'gw.fw'))['tm-budget'], 120);
+    await page.keyboard.press('Escape');
+  });
+
+  await check('capacity edits in place in the status bar', async () => {
+    const box = page.getByLabel('Weekly capacity');
+    await box.fill('35');
+    await box.press('Enter');
+    await settle(page);
+    assert.equal((await page.evaluate(() => window.tm.stateFile())).capacity, 35);
+    assert.match(await status(page), /^Capacity 35h\/week/);
+    await box.fill('');
+    await box.blur();
+    assert.equal(await box.inputValue(), '35');
+    await undo();
+    assert.equal((await page.evaluate(() => window.tm.stateFile())).capacity, 40);
+  });
+
+  await check('load strip: click a week to override, clear to remove, Esc to leave', async () => {
+    const box = await page.locator('.tm-scroller').boundingBox();
+    const x = box.x + box.width * 0.6;
+    const y = box.y + box.height - 25;
+    const before = await loadHash(page);
+    await page.mouse.click(x, y);
+    const field = page.getByLabel('Hours this week');
+    assert.equal(await field.count(), 1);
+    await field.fill('90');
+    await shoot(page, 'week-edit');
+    await field.press('Enter');
+    await settle(page);
+    assert.equal(await field.count(), 0);
+    assert.notEqual(await loadHash(page), before);
+    const file = await page.evaluate(() => window.tm.stateFile());
+    assert.deepEqual(Object.values(file.weekCapacity), [90]);
+    await page.mouse.move(5, 5);
+    await shoot(page, 'week-edit-after');
+    await page.mouse.click(x, y);
+    assert.equal(await field.inputValue(), '90');
+    await page.keyboard.press('Escape');
+    assert.equal(await field.count(), 0);
+    await page.mouse.click(x, y);
+    await field.fill('');
+    await field.blur();
+    await settle(page);
+    assert.deepEqual((await page.evaluate(() => window.tm.stateFile())).weekCapacity, {});
+    await page.mouse.move(5, 5);
+    assert.equal(await loadHash(page), before);
+  });
+
+  await check('undo button and Ctrl+Z walk back everything; Ctrl+Z in a field stays in the field', async () => {
+    await select('CAN stack port');
+    await page.getByLabel('Total hours').fill('33');
+    await page.getByLabel('Total hours').press('Enter');
+    await settle(page);
+    await page.locator('.tm-undo').click();
+    await settle(page);
+    assert.equal((await note(page, 'gw.fw.drv.can'))['tm-left'], 30);
+    await page.getByLabel('Total hours').fill('33');
+    await page.getByLabel('Total hours').press('Enter');
+    const label = await page.locator('.tm-undo').getAttribute('title');
+    await page.getByLabel('Total hours').press('Control+z');
+    assert.equal(await page.locator('.tm-undo').getAttribute('title'), label);
+    await page.keyboard.press('Escape');
+    for (let i = 0; i < 40 && !(await page.locator('.tm-undo').isDisabled()); i++) await undo();
+    assert.equal(await page.locator('.tm-undo').isDisabled(), true);
+    const fm = await note(page, 'dp.doc');
+    assert.equal(fm['tm-left'], 6);
+    assert.equal(fm['tm-scope'], 'should');
+    assert.equal(fm['tm-deadline'], undefined);
+    assert.equal((await note(page, 'gw.fw'))['tm-budget'], undefined);
+  });
+
+  await check('dark theme mid-drag', async () => {
+    const dark = await open('theme=dark', 'dark', tall);
+    const bar = await barPoint(dark, 'rig.sq.rep', true);
+    await dark.mouse.move(bar.x, bar.y);
+    await dark.mouse.down();
+    await dark.mouse.move(bar.x + 70, bar.y, { steps: 8 });
+    await shoot(dark, 'drag-dark-mid');
+    await dark.mouse.up();
+    await dark.close();
   });
   await page.close();
 }

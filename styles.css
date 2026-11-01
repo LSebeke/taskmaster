@@ -118,3 +118,21 @@
 .tm-status{display:flex;gap:14px;padding:5px 12px;font-size:12px;color:var(--tm-ink2);background:var(--tm-surface);border-top:1px solid var(--tm-ring);min-height:29px;align-items:center}
 .tm-no-status .tm-status{display:none}
 .tm-changes{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.tm-root input,.tm-root select{font:inherit;color:inherit;background:var(--tm-surface);border:1px solid var(--tm-ring);border-radius:5px;height:24px;padding:0 5px;box-shadow:none}
+.tm-root input:focus-visible,.tm-root select:focus-visible{outline:2px solid var(--tm-accent);outline-offset:0;box-shadow:none}
+.tm-root input.tm-num-in{width:70px;font-variant-numeric:tabular-nums}
+.tm-root input.tm-date-in{width:128px}
+.tm-edge{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.tm-edge .tm-seg button{padding:1px 6px;font-size:12px}
+.tm-log-form{display:flex;gap:5px;align-items:center}
+.tm-root .tm-log-form input.tm-num-in{width:58px}
+.tm-root .tm-log-form input.tm-date-in{width:120px;min-width:0;flex:1}
+.tm-root button.tm-x-btn{flex:none;border:0;background:none;padding:0 4px;color:var(--tm-ink2);line-height:1.2}
+.tm-root button.tm-x-btn:hover{color:var(--tm-crit)}
+.tm-root select.tm-dep-pick{width:100%;margin-top:4px}
+.tm-cap{display:inline-flex;gap:4px;align-items:center;white-space:nowrap}
+.tm-root input.tm-cap-in{width:54px;height:20px}
+.tm-overlay{position:absolute;left:0;right:0;bottom:0;height:0;pointer-events:none}
+.tm-week-edit{position:absolute;bottom:66px;display:flex;gap:5px;align-items:center;padding:4px 7px;font-size:12px;background:var(--tm-surface);border:1px solid var(--tm-ring);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18);pointer-events:auto;z-index:3}
+.tm-root .tm-week-edit input.tm-num-in{width:56px}
