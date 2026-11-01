@@ -30,6 +30,7 @@ const problems = [];
 
 async function open(query = 'theme=light', colorScheme = 'light', size = viewport) {
   const page = await browser.newPage({ viewport: size, colorScheme });
+  page.setDefaultTimeout(4000);
   page.on('console', m => m.type() === 'error' && problems.push(`console: ${m.text()}`));
   page.on('pageerror', e => problems.push(`page: ${e.message}\n${e.stack}`));
   await page.goto(`${pathToFileURL(join(dev, 'harness.html'))}?${query}`);

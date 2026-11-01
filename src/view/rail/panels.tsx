@@ -3,6 +3,7 @@ import { deleteLogEntry, editLogEntry, moveTask, setBudget, setDeadline, setHour
 import { countNotInPlan, planGapText, upcomingExternals, why } from '../explain';
 import { fmtD, h1 } from '../format';
 import { DateField, Deps, EdgeSwitch, LogForm, NumField } from './fields';
+import { Blocks, DeleteButton, InsidePicker, NameField } from './item-fields';
 import { Card, Dated, Field, Link, Notes, StatusCard, Tiles, Todos, type PanelProps } from './parts';
 
 const SCOPES: Scope[] = ['must', 'should', 'could'];
@@ -88,6 +89,7 @@ export function Overview({ st, a, id, act, readTodos, previewing, selected, focu
       <StatusCard st={st} a={a} id={id} />
       <Tiles st={st} a={a} id={id} />
       <div class="tm-actions">
+        <button onClick={() => act.add(id)}>+ Add</button>
         {!focused && <button onClick={() => act.focus(id)}>⤢ Focus chart</button>}
         <button onClick={act.openPlan}>Update plan…</button>
       </div>
@@ -96,14 +98,18 @@ export function Overview({ st, a, id, act, readTodos, previewing, selected, focu
       <h3>Linked notes</h3>
       <Notes st={st} id={id} act={act} />
       <h3>Properties</h3>
-      <Field label="Name">{it.title}</Field>
+      <Field label="Name">
+        <NameField value={it.title} onCommit={t => act.rename(id, t)} />
+      </Field>
       <Field label="Budget">
         <NumField clearable label="Budget" value={it.budget} step={1} placeholder="None" onCommit={h => act.apply(setBudget(id, h))} />
       </Field>
       <Field label="Deadline">
         <DateField label="Deadline" value={it.deadline} onCommit={d => act.apply(setDeadline(id, d))} />
       </Field>
-      <Field label="Inside">{titleOf(st, it.parent) ?? 'Top level (project)'}</Field>
+      <Field label="Inside">
+        <InsidePicker st={st} a={a} id={id} act={act} previewing={previewing} />
+      </Field>
       <h3>Depends on</h3>
       <Deps st={st} a={a} id={id} act={act} previewing={previewing} />
       {!!it.todos?.length && (
@@ -112,6 +118,7 @@ export function Overview({ st, a, id, act, readTodos, previewing, selected, focu
           <Todos st={st} a={a} id={id} act={act} readTodos={readTodos} previewing={previewing} />
         </>
       )}
+      <DeleteButton st={st} a={a} id={id} act={act} />
       <Lists st={st} a={a} scope={id} act={act} />
     </>
   );
@@ -151,10 +158,15 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
         {peers > 0 && <div class="tm-sub">Same priority as {peers} task(s), shares burn equally</div>}
       </Card>
       <div class="tm-actions">
+        {!ms && <button onClick={() => act.add(id)}>+ Add</button>}
         <button onClick={act.openPlan}>Update plan…</button>
       </div>
-      <Field label="Name">{it.title}</Field>
-      <Field label="Inside">{titleOf(st, it.parent) ?? 'Top level (project)'}</Field>
+      <Field label="Name">
+        <NameField value={it.title} onCommit={t => act.rename(id, t)} />
+      </Field>
+      <Field label="Inside">
+        <InsidePicker st={st} a={a} id={id} act={act} previewing={previewing} />
+      </Field>
       {!ms && (
         <Field label="Deadline">
           <DateField label="Deadline" value={it.deadline} onCommit={d => act.apply(setDeadline(id, d))} />
@@ -227,17 +239,15 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
       )}
       <h3>Linked notes</h3>
       <Notes st={st} id={id} act={act} />
+      <DeleteButton st={st} a={a} id={id} act={act} />
     </>
   );
 }
 
-/** Read-only for now: editing and the effect figures come later. */
-export function ExternalPanel({ st, a, id, act }: Omit<PanelProps, 'readTodos' | 'previewing'>) {
+/** The effect figures come with the rest of the signals. */
+export function ExternalPanel({ st, a, id, act, previewing }: Omit<PanelProps, 'readTodos'>) {
   const it = st.items[id];
   const b = a.by[id];
-  const blocks = Object.keys(st.items)
-    .filter(i => st.items[i].deps?.includes(id))
-    .sort((x, y) => st.items[x].title.localeCompare(st.items[y].title));
   return (
     <>
       <Back act={act} />
@@ -248,19 +258,20 @@ export function ExternalPanel({ st, a, id, act }: Omit<PanelProps, 'readTodos' |
       </div>
       <Card>No project hours and no capacity. Anything linked below starts the day after it ends.</Card>
       <h3>Dates</h3>
-      <Field label="Name">{it.title}</Field>
-      <Field label="Start">{fmtD(it.pinS)}</Field>
-      <Field label="End">{fmtD(it.pinE)}</Field>
+      <Field label="Name">
+        <NameField value={it.title} onCommit={t => act.rename(id, t)} />
+      </Field>
+      <Field label="Start">
+        <DateField label="Start" value={it.pinS} onCommit={d => d != null && act.apply(setPin(id, 'start', d))} />
+      </Field>
+      <Field label="End">
+        <DateField label="End" value={it.pinE} onCommit={d => d != null && act.apply(setPin(id, 'end', d))} />
+      </Field>
       <h3>Blocks</h3>
-      {blocks.map(d => (
-        <div class="tm-li" key={d}>
-          <Link id={d} st={st} act={act} />
-          <Dated d={a.by[d]?.start} />
-        </div>
-      ))}
-      {!blocks.length && <div class="tm-sub">Nothing</div>}
+      <Blocks st={st} a={a} id={id} act={act} previewing={previewing} />
       <h3>Linked notes</h3>
       <Notes st={st} id={id} act={act} />
+      <DeleteButton st={st} a={a} id={id} act={act} />
     </>
   );
 }

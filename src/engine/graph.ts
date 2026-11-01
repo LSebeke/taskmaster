@@ -31,6 +31,13 @@ export function effDeps(st: State, id: string, K: KidsMap): string[] {
   return [...out];
 }
 
+/** An item and everything under it, itself first. */
+export function subtree(id: string, K: KidsMap): string[] {
+  const out = [id];
+  for (const c of K[id] ?? []) out.push(...subtree(c, K));
+  return out;
+}
+
 export function rootOf(st: State, id: string): string {
   let i = id;
   while (st.items[i].parent) i = st.items[i].parent!;

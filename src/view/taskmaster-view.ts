@@ -1,5 +1,6 @@
 import { ItemView, Scope, type WorkspaceLeaf } from 'obsidian';
 import { GanttApp, type ViewStore } from './gantt-app';
+import { NotePicker } from './note-picker';
 
 export const VIEW_TYPE = 'taskmaster';
 
@@ -29,11 +30,17 @@ export class TaskmasterView extends ItemView {
     this.contentEl.classList.add('tm-content');
     const gantt = new GanttApp(this.contentEl, this.getStore(), {
       openNote: path => void this.app.workspace.openLinkText(path, ''),
+      pickNote: done => new NotePicker(this.app, done).open(),
     });
     this.gantt = gantt;
     this.scope = new Scope(this.app.scope);
     this.scope.register([], 'Escape', () => {
       gantt.escape();
+      return false;
+    });
+    this.scope.register([], 'n', () => {
+      if (this.contentEl.ownerDocument.activeElement?.closest('input,select,textarea')) return true;
+      gantt.addItem();
       return false;
     });
     this.scope.register(['Mod'], 'z', () => {

@@ -1,4 +1,5 @@
-import type { State } from '../engine';
+import type { ItemKind, KidsMap, State } from '../engine';
+import { movedPath } from '../store/ports';
 
 export type LayerLevel = 'off' | 'ghost' | 'solid';
 export type LayerName = 'plan' | 'fc';
@@ -44,7 +45,19 @@ export interface PlanDialog {
   above: string | null;
 }
 
+/** The add form. Its text fields live in the form; these outlast an Add, or follow a rename. */
+export interface FormState {
+  kind: ItemKind;
+  parent: string | null;
+  /** The item just added, which the next may depend on. */
+  last: string | null;
+  added: string[];
+  /** A new number is a new form. */
+  nonce: number;
+}
+
 export interface UiState {
+  form: FormState | null;
   focus: string | null;
   sel: string | null;
   /** Everything starts expanded, so new parents need no bookkeeping. */
@@ -53,6 +66,8 @@ export interface UiState {
   hiddenOpen: boolean;
   /** Week whose capacity is being edited on the load strip. */
   weekEdit: number | null;
+  /** Forms opened so far. */
+  nonces: number;
   tab: RailTab;
   /** The overall to-do list, even with a project focused. */
   todoAll: boolean;
@@ -70,12 +85,14 @@ export interface UiState {
 }
 
 export const defaultUi = (): UiState => ({
+  form: null,
   focus: null,
   sel: null,
   collapsed: new Set(),
   hidden: new Set(),
   hiddenOpen: false,
   weekEdit: null,
+  nonces: 0,
   tab: 'overview',
   todoAll: false,
   todoOpen: new Set(),
@@ -126,8 +143,17 @@ export function setFocus(ui: UiState, id: string | null): UiState {
 
 export const goUp = (ui: UiState, st: State): UiState => (ui.focus ? setFocus(ui, st.items[ui.focus].parent) : ui);
 
+/** `in`: a chosen parent. Otherwise the selected parent, else the selected item's parent, else the focus. */
+export function openForm(ui: UiState, st: State, K: KidsMap, where: 'project' | 'item' | { in: string }): UiState {
+  const near = ui.sel ? (K[ui.sel] ? ui.sel : st.items[ui.sel].parent) : null;
+  const parent = where === 'project' ? null : where === 'item' ? (near ?? ui.focus) : where.in;
+  const form = { kind: 'item' as const, parent, last: null, added: [], nonce: (ui.form?.nonce ?? ui.nonces) + 1 };
+  return { ...ui, form, nonces: form.nonce, tab: 'overview', show: { ...ui.show, rail: true } };
+}
+
 /** Closes what is open, then clears selection, then goes up. */
 export function escape(ui: UiState, st: State): UiState {
+  if (ui.form) return { ...ui, form: null };
   if (ui.weekEdit != null) return { ...ui, weekEdit: null };
   if (ui.planDlg) return { ...ui, planDlg: null };
   if (ui.historyOpen) return { ...ui, historyOpen: false };
@@ -149,7 +175,7 @@ export function toggleTodoOpen(ui: UiState, id: string): Pick<UiState, 'todoOpen
   return { todoOpen };
 }
 
-const isInside = (st: State, id: string, ancestor: string) => {
+export const isInside = (st: State, id: string, ancestor: string) => {
   for (let i: string | null = id; i; i = st.items[i]?.parent ?? null) if (i === ancestor) return true;
   return false;
 };
@@ -167,9 +193,30 @@ export function toggleHidden(ui: UiState, id: string, st: State): UiState {
   };
 }
 
+/** A note or folder was renamed. Everything the view holds is keyed by path. */
+export function rekeyUi(ui: UiState, from: string, to: string): UiState {
+  const move = (p: string) => movedPath(p, from, to);
+  const moveNull = (p: string | null) => p && move(p);
+  const moveSet = (s: Set<string>) => new Set([...s].map(move));
+  const { form, planDlg } = ui;
+  return {
+    ...ui,
+    focus: moveNull(ui.focus),
+    sel: moveNull(ui.sel),
+    collapsed: moveSet(ui.collapsed),
+    hidden: moveSet(ui.hidden),
+    todoOpen: moveSet(ui.todoOpen),
+    form: form && { ...form, parent: moveNull(form.parent), last: moveNull(form.last) },
+    planDlg: planDlg && { ...planDlg, rows: planDlg.rows.map(move), ids: moveSet(planDlg.ids), above: moveNull(planDlg.above) },
+  };
+}
+
 /** Notes come and go under the view. */
 export function pruneUi(ui: UiState, st: State): UiState {
   const gone = (id: string | null) => id != null && !st.items[id];
+  if (ui.form && (gone(ui.form.parent) || gone(ui.form.last))) {
+    ui = { ...ui, form: { ...ui.form, parent: gone(ui.form.parent) ? null : ui.form.parent, last: gone(ui.form.last) ? null : ui.form.last } };
+  }
   const staleHidden = [...ui.hidden].some(gone);
   const dlg = ui.planDlg;
   const staleDlg = !!dlg && dlg.rows.some(gone);

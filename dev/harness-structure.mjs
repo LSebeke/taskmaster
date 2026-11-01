@@ -65,7 +65,7 @@ export async function structureChecks({ open, shoot, check, rowByTitle, railTitl
       await page.keyboard.press('Escape');
       const row = rowByTitle(page, 'Test Rig Automation');
       await row.hover();
-      await row.locator('.tm-fb', { hasText: 'Focus' }).click();
+      await row.locator('.tm-fb').click();
       await page.mouse.move(5, 5);
       await page.evaluate(() => document.activeElement?.blur());
       await page.keyboard.press('n');
@@ -77,16 +77,16 @@ export async function structureChecks({ open, shoot, check, rowByTitle, railTitl
     await check('+ Add on a row and in details; none on milestones or external rows', async () => {
       const row = rowByTitle(page, 'Protocol');
       await row.hover();
-      await row.locator('.tm-fb', { hasText: '+ Add' }).click();
+      await row.locator('.tm-add').click();
       assert.equal(await form(page).getByLabel('Inside').inputValue(), await idOf(page, 'Protocol'));
       await shoot(page, 'form-row-add');
       await page.keyboard.press('Escape');
       const leaf = rowByTitle(page, 'Runbook');
       await leaf.hover();
-      assert.equal(await leaf.locator('.tm-fb', { hasText: '+ Add' }).isVisible(), true);
+      assert.equal(await leaf.locator('.tm-add').isVisible(), true);
       assert.equal(await leaf.locator('.tm-n').isVisible(), false);
-      assert.equal(await rowByTitle(page, 'Release candidate').locator('.tm-fb').count(), 0);
-      assert.equal(await rowByTitle(page, 'Test bench recalibration').locator('.tm-fb').count(), 0);
+      assert.equal(await rowByTitle(page, 'Release candidate').locator('.tm-add').count(), 0);
+      assert.equal(await rowByTitle(page, 'Test bench recalibration').locator('.tm-add').count(), 0);
       await select(page, 'Drivers');
       await page.locator('.tm-rail button', { hasText: '+ Add' }).click();
       assert.equal(await form(page).getByLabel('Inside').inputValue(), await idOf(page, 'Drivers'));
@@ -103,7 +103,7 @@ export async function structureChecks({ open, shoot, check, rowByTitle, railTitl
       assert.equal(before, 1);
       const row = rowByTitle(page, 'Protocol');
       await row.hover();
-      await row.locator('.tm-fb', { hasText: '+ Add' }).click();
+      await row.locator('.tm-add').click();
       await name(page).fill('Handshake');
       await form(page).getByLabel('Hours').fill('8');
       await page.keyboard.press('Enter');
@@ -179,7 +179,7 @@ export async function structureChecks({ open, shoot, check, rowByTitle, railTitl
 
     await check('title clash gets a suffix', async () => {
       await rowByTitle(page, 'Protocol').hover();
-      await rowByTitle(page, 'Protocol').locator('.tm-fb', { hasText: '+ Add' }).click();
+      await rowByTitle(page, 'Protocol').locator('.tm-add').click();
       await name(page).fill('OTA updates');
       await page.keyboard.press('Enter');
       await settle(page);
@@ -242,6 +242,7 @@ export async function structureChecks({ open, shoot, check, rowByTitle, railTitl
       assert.deepEqual(await boxes(), before);
       assert.equal(await page.locator('.tm-drop.tm-drop-in').count(), 1);
       assert.equal(await page.locator('.tm-drag-ghost').isVisible(), true);
+      assert.notEqual(await page.locator('.tm-drag-ghost').evaluate(e => getComputedStyle(e).backgroundColor), 'rgba(0, 0, 0, 0)', 'ghost outside the theme variables');
       assert.match(await status(page), /Move into Runbook: its 6h become its budget/);
       await shoot(page, 'row-drag-into');
       await drop(page);
@@ -464,13 +465,13 @@ export async function structureChecks({ open, shoot, check, rowByTitle, railTitl
     await check('rail: name, dates that move the forecast, blocks add and remove, delete', async () => {
       await select(page, ext);
       await shoot(page, 'external-rail');
-      await rail.getByLabel('Start').fill('2026-12-07');
-      await rail.getByLabel('Start').blur();
+      await rail.getByLabel('Start', { exact: true }).fill('2026-12-07');
+      await rail.getByLabel('Start', { exact: true }).blur();
       await settle(page);
       let it = await item(page, ext);
       assert.equal(it.pinS, it.pinE, 'start stops at end');
-      await rail.getByLabel('End').fill('2026-12-18');
-      await rail.getByLabel('End').blur();
+      await rail.getByLabel('End', { exact: true }).fill('2026-12-18');
+      await rail.getByLabel('End', { exact: true }).blur();
       await settle(page);
       assert.equal((await noteAt(page, await idOf(page, ext)))['tm-pin-end'], '2026-12-18');
       assert.match(await status(page), /forecast moved/i);
@@ -508,12 +509,12 @@ export async function structureChecks({ open, shoot, check, rowByTitle, railTitl
       await page.keyboard.press('Escape');
       const dp = rowByTitle(page, 'Sensor Gateway v2');
       await dp.hover();
-      await dp.locator('.tm-fb', { hasText: 'Focus' }).click();
+      await dp.locator('.tm-fb').click();
       assert.equal(await rowByTitle(page, ext).count(), 1);
       await page.locator('.tm-up').click();
       const dpr = rowByTitle(page, 'Data Pipeline Migration');
       await dpr.hover();
-      await dpr.locator('.tm-fb', { hasText: 'Focus' }).click();
+      await dpr.locator('.tm-fb').click();
       assert.equal(await rowByTitle(page, ext).count(), 0);
       await page.locator('.tm-up').click();
     });

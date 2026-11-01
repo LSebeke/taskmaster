@@ -1,7 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { Analysis, State, Todo } from '../../engine';
-import type { Edit } from '../../store/edits';
+import type { Analysis, NewItem, State, Todo } from '../../engine';
+import { unlinkNote, type Edit } from '../../store/edits';
 import { fmtD, h1, noteName } from '../format';
 import { statusOf } from '../explain';
 import type { UiState } from '../ui-state';
@@ -17,6 +17,14 @@ export interface RailActions {
   setTodoDone(id: string, index: number, t: string, done: boolean): void;
   addTodo(id: string, text: string): void;
   ui(patch: Partial<UiState>): void;
+  /** Opens the add form inside an item. */
+  add(parent: string): void;
+  /** Adds what the form holds. Resolves to why not, or null. */
+  submit(n: NewItem): Promise<string | null>;
+  rename(id: string, title: string): void;
+  move(id: string, parent: string | null): void;
+  remove(id: string): void;
+  link(id: string): void;
 }
 
 export interface PanelProps {
@@ -90,7 +98,6 @@ export const Link = ({ id, st, act }: { id: string; st: State; act: RailActions 
 
 export function Notes({ st, id, act }: Pick<PanelProps, 'st' | 'id' | 'act'>) {
   const notes = st.items[id].notes ?? [];
-  if (!notes.length) return <div class="tm-sub">None</div>;
   return (
     <>
       {notes.map(n => (
@@ -98,8 +105,15 @@ export function Notes({ st, id, act }: Pick<PanelProps, 'st' | 'id' | 'act'>) {
           <span class="tm-grow tm-link tm-note" onClick={() => act.openNote(n)}>
             [[{noteName(n)}]]
           </span>
+          <button class="tm-x-btn" title="Unlink. The note stays" aria-label={`Unlink ${noteName(n)}`} onClick={() => act.apply(unlinkNote(id, n))}>
+            ×
+          </button>
         </div>
       ))}
+      {!notes.length && <div class="tm-sub">None</div>}
+      <div class="tm-actions">
+        <button onClick={() => act.link(id)}>Link note</button>
+      </div>
     </>
   );
 }

@@ -1,6 +1,7 @@
 import { render } from 'preact';
-import { analyze, isoWeekKey, type Analysis, type State, type Todo } from '../engine';
-import { setWeekCapacity, setWeekly, updatePlan, type Edit } from '../store/edits';
+import { analyze, isoWeekKey, type Analysis, type NewItem, type State, type Todo } from '../engine';
+import type { Done } from '../store';
+import { linkNote, setWeekCapacity, setWeekly, updatePlan, type Edit } from '../store/edits';
 import { describeChanges } from './changes';
 import { Legend, StatusBar, TopBar, TreeFoot, TreeHead, WeekEdit } from './chrome';
 import { tooltipLines } from './explain';
@@ -14,11 +15,13 @@ import { readPalette, type Palette } from './gantt/palette';
 import { chartSpan, clampPpd, makeScale, zoomAround, type TimeScale } from './gantt/scale';
 import { buildScene, projectRoots, type Bar, type Scene } from './gantt/scene';
 import { Hierarchy } from './hierarchy';
+import type { NotePick } from './note-picker';
 import { HistoryDialog, PlanDialogBox } from './plan-dialog';
 import { openPlan, planTarget, setPlanDeep, togglePlanRow } from './plan-ui';
 import { Rail } from './rail/rail';
+import { RowDrag, type Drop, type RowHit } from './row-drag';
 import { buildRows, HEAD, LOADH, ROW, rowView, type Row } from './rows';
-import { cleanForSharing, defaultUi, defaultView, escape, goUp, pruneUi, setFocus, setLayer, setShow, toggleCollapsed, toggleHidden, type UiState } from './ui-state';
+import { cleanForSharing, defaultUi, defaultView, escape, goUp, isInside, openForm, pruneUi, rekeyUi, setFocus, setLayer, setShow, toggleCollapsed, toggleHidden, type UiState } from './ui-state';
 
 /** The slice of TaskmasterStore the view reads. */
 export interface ViewStore {
@@ -30,10 +33,18 @@ export interface ViewStore {
   setTodoDone(id: string, index: number, t: string, done: boolean): boolean;
   addTodo(id: string, text: string): boolean;
   undo(): Promise<string | null>;
+  create(n: NewItem): Promise<Done>;
+  move(id: string, parent: string | null, before?: string | null): Promise<Done>;
+  rename(id: string, title: string): Promise<Done>;
+  remove(id: string): Promise<Done>;
+  linkNew(id: string, title: string): Promise<Done>;
+  onMove(listener: (from: string, to: string) => void): () => void;
 }
 
 export interface ViewHost {
   openNote(path: string): void;
+  /** Obsidian's note picker. */
+  pickNote(done: (pick: NotePick) => void): void;
 }
 
 const WHEEL_IN = 1.15;
@@ -64,6 +75,7 @@ export class GanttApp {
   private stored: Analysis | null = null;
   private hot: Hot = { row: null, link: null };
   private gestures: Gestures;
+  private rowDrag: RowDrag;
   private rows: Row[] = [];
   private scene!: Scene;
   private load!: Load;
@@ -77,6 +89,7 @@ export class GanttApp {
   private raf = 0;
   private stop = new AbortController();
   private unsubscribe: () => void;
+  private unmove: () => void;
   private resize: ResizeObserver;
 
   private root: HTMLElement;
@@ -113,6 +126,7 @@ export class GanttApp {
       hide: id => this.setUi(toggleHidden(this.ui, id, this.st)),
       focus: id => this.focusOn(id),
       open: id => this.view.openNote(id),
+      add: id => this.openForm({ in: id }),
     });
     this.treeFoot = div(this.tree, 'tm-tree-foot');
     this.chart = div(main, 'tm-chart');
@@ -128,10 +142,12 @@ export class GanttApp {
     this.pal = readPalette(this.root);
     this.a = this.compute();
     this.gestures = new Gestures(this.gestureHost());
+    this.rowDrag = new RowDrag(this.rowDragHost());
     this.listen();
     this.rebuild();
     this.centreToday();
     this.unsubscribe = store.subscribe((_, label) => this.onStore(label));
+    this.unmove = store.onMove((from, to) => this.onMove(from, to));
     this.resize = new ResizeObserver(() => this.onResize());
     this.resize.observe(this.chart);
   }
@@ -139,6 +155,7 @@ export class GanttApp {
   destroy() {
     this.stop.abort();
     this.unsubscribe();
+    this.unmove();
     this.resize.disconnect();
     cancelAnimationFrame(this.raf);
     for (const host of [this.top, this.legend, this.treeHead, this.treeFoot, this.rail, this.status, this.overlay, this.dialog]) render(null, host);
@@ -155,12 +172,12 @@ export class GanttApp {
 
   /** Esc: drops a gesture, closes what is open, then clears selection, then goes up. */
   escape() {
-    if (this.gestures.cancel()) return;
+    if (this.gestures.cancel() || this.rowDrag.cancel()) return;
     this.setUi(escape(this.ui, this.st));
   }
 
   undo() {
-    if (!this.gestures.active) void this.store.undo();
+    if (!this.gestures.active && !this.rowDrag.active) void this.store.undo();
   }
 
   refreshTheme() {
@@ -186,6 +203,93 @@ export class GanttApp {
     const x1 = left + this.scale.x(bar.d1);
     const dot = dotAt(bar, this.scale);
     return { x: (x0 + x1) / 2, y: top + bar.top + bar.h / 2, x0, x1, dot: { x: left + dot.x, y: top + dot.y } };
+  }
+
+  /** N: the add form, as `+ Item` opens it. */
+  addItem() {
+    this.openForm('item');
+  }
+
+  private openForm(where: Parameters<typeof openForm>[3]) {
+    this.setUi(openForm(this.ui, this.store.state, this.a.K, where));
+  }
+
+  private async submitForm(n: NewItem): Promise<string | null> {
+    const { id, error } = await this.store.create(n);
+    if (error || !id) return error ?? 'Could not add it.';
+    const { ui } = this;
+    const st = this.store.state;
+    const it = st.items[id];
+    if (!ui.form || !it) return null;
+    const project = n.kind !== 'ext' && !n.parent;
+    const external = n.kind === 'ext';
+    const collapsed = new Set(ui.collapsed);
+    if (it.parent) collapsed.delete(it.parent);
+    this.setUi({
+      ...ui,
+      collapsed,
+      // New work outside the focus would be out of sight.
+      focus: ui.focus && !external && !isInside(st, id, ui.focus) ? null : ui.focus,
+      form: { ...ui.form, parent: project ? id : ui.form.parent, last: project || external ? null : id, added: [...ui.form.added, it.title] },
+    });
+    return null;
+  }
+
+  private refuse(done: Promise<Done>) {
+    void done.then(({ error }) => error && this.say(`⚠ ${error}`));
+  }
+
+  private linkPicked(id: string, pick: NotePick) {
+    if ('create' in pick) this.refuse(this.store.linkNew(id, pick.create));
+    else this.store.apply(linkNote(id, pick.path));
+  }
+
+  private moveRow(id: string, drop: Drop) {
+    if (drop.parent) {
+      const collapsed = new Set(this.ui.collapsed);
+      if (collapsed.delete(drop.parent)) this.ui = { ...this.ui, collapsed };
+    }
+    this.refuse(this.store.move(id, drop.parent, drop.before));
+  }
+
+  /** The tree row under a point, and where in that row. */
+  private rowAt(clientY: number): RowHit | null {
+    const y = clientY - this.tree.getBoundingClientRect().top - HEAD + this.scroller.scrollTop;
+    const index = Math.floor(y / ROW);
+    const row = this.rows[index];
+    if (y < 0 || !row || row.section) return null;
+    return { id: row.id, index, depth: row.depth, share: y / ROW - index };
+  }
+
+  private rowDragHost() {
+    const app = this;
+    return {
+      tree: this.tree,
+      get state() {
+        return app.store.state;
+      },
+      get kids() {
+        return app.a.K;
+      },
+      rowAt: (y: number) => this.rowAt(y),
+      consequence: (label: string, edit: Edit) => this.consequence(label, edit),
+      say: (text: string) => {
+        const was = this.message;
+        this.say(text);
+        return was;
+      },
+      mark: (m: Parameters<Hierarchy['setDrop']>[0]) => this.hierarchy.setDrop(m),
+      dragging: (id: string | null) => this.hierarchy.setDragged(id),
+      move: (id: string, drop: Drop) => this.moveRow(id, drop),
+    };
+  }
+
+  /** A renamed note changes the keys of everything. Only a drag preview may stay as it is until the drop. */
+  private onMove(from: string, to: string) {
+    this.ui = rekeyUi(this.ui, from, to);
+    if (this.shown) return;
+    this.a = this.compute();
+    this.rebuild();
   }
 
   private compute(): Analysis {
@@ -361,6 +465,7 @@ export class GanttApp {
         st={st}
         ui={ui}
         onUp={() => this.setUi(goUp(this.ui, this.st))}
+        onAdd={where => this.openForm(where)}
         onFocus={id => this.focusOn(id)}
         onZoom={p => this.setZoom(p, this.chart.clientWidth / 2)}
         onAxis={axis => this.setUi({ ...this.ui, axis })}
@@ -412,6 +517,12 @@ export class GanttApp {
           setTodoDone: (id, index, t, done) => void this.store.setTodoDone(id, index, t, done),
           addTodo: (id, text) => void this.store.addTodo(id, text),
           ui: patch => this.setUi({ ...this.ui, ...patch }),
+          add: id => this.openForm({ in: id }),
+          submit: n => this.submitForm(n),
+          rename: (id, title) => this.refuse(this.store.rename(id, title)),
+          move: (id, parent) => this.refuse(this.store.move(id, parent)),
+          remove: id => this.refuse(this.store.remove(id)),
+          link: id => this.view.pickNote(pick => this.linkPicked(id, pick)),
         }}
       />,
       this.rail,
@@ -611,6 +722,19 @@ export class GanttApp {
     const { signal } = this.stop;
     const { scroller, tree } = this;
     this.hierarchy.listen(signal);
+    tree.addEventListener(
+      'pointerdown',
+      e => {
+        const id = (e.target as HTMLElement).closest<HTMLElement>('[data-row]')?.dataset.row;
+        if (id) this.rowDrag.down(e, id);
+      },
+      { signal },
+    );
+    // A native drag of selected text would cancel the pointer mid-gesture.
+    tree.addEventListener('dragstart', e => e.preventDefault(), { signal });
+    tree.addEventListener('pointermove', e => this.rowDrag.move(e), { signal });
+    tree.addEventListener('pointerup', () => this.rowDrag.up(), { signal });
+    tree.addEventListener('pointercancel', () => this.rowDrag.cancel(), { signal });
     this.root.addEventListener(
       'pointerdown',
       e => {

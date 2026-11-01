@@ -107,8 +107,8 @@ export function addItem(st: State, n: NewItem): string {
   return id;
 }
 
-/** Why id cannot move under parent (null: top level), or null if it can. */
-export function moveError(st: State, id: string, parent: string | null): string | null {
+/** Why the tree alone forbids this move. Cheap, for offering choices. */
+export function placeError(st: State, id: string, parent: string | null): string | null {
   const it = st.items[id];
   const P = parent ? st.items[parent] : null;
   if (it.kind === 'ext') return 'External items stay in their own section.';
@@ -116,6 +116,14 @@ export function moveError(st: State, id: string, parent: string | null): string 
   if (P?.kind === 'ms') return 'Milestones cannot have children.';
   if (P?.kind === 'ext') return 'External items cannot have children.';
   for (let i = parent; i; i = st.items[i].parent) if (i === id) return 'An item cannot move inside itself.';
+  return null;
+}
+
+/** Why id cannot move under parent (null: top level), or null if it can. */
+export function moveError(st: State, id: string, parent: string | null): string | null {
+  const refused = placeError(st, id, parent);
+  if (refused) return refused;
+  const it = st.items[id];
   if ((parent ?? null) === (it.parent ?? null)) return null;
   const moved: State = { ...st, items: { ...st.items, [id]: { ...it, parent: parent || null } } };
   return hasCycle(moved) ? 'That would create a dependency loop.' : null;

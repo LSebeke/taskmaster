@@ -89,6 +89,7 @@ export const setPin =
     } else if (day == null) delete it.pinE;
     else it.pinE = it.pinS != null ? Math.max(day, it.pinS) : day;
     const pin = edge === 'start' ? it.pinS : it.pinE;
+    if (it.kind === 'ext') return `${it.title}: ${edge} ${iso(pin!)}`;
     return `${it.title}: ${edge} ${pin == null ? 'Auto' : `pinned to ${iso(pin)}`}`;
   };
 
@@ -169,6 +170,12 @@ export const setWeekCapacity =
     return hours == null ? 'Week override cleared' : `Week override ${num(hours)}h`;
   };
 
+/** Notes project in path order. This keeps the order siblings have now, which a project's colour follows. */
+function pinSiblings(st: State, parent: string | null) {
+  const siblings = kids(st)[parent ?? ''] ?? [];
+  st.order = [...(st.order ?? []).filter(x => st.items[x] && !siblings.includes(x)), ...siblings];
+}
+
 /** The state half of a new note. The note may already be in the projection, and a parent must see it arrive. */
 export const addEdit =
   (n: NewItem & { id: string }): Edit =>
@@ -176,6 +183,7 @@ export const addEdit =
     delete st.items[n.id];
     st.tiers = st.tiers.map(t => t.filter(x => x !== n.id));
     addItem(st, n);
+    pinSiblings(st, n.parent ?? null);
     return `Added ${n.title}`;
   };
 
@@ -185,8 +193,7 @@ export const moveEdit =
   st => {
     if (!st.items[id] || moveError(st, id, parent)) return;
     moveItem(st, id, parent, before);
-    const siblings = kids(st)[parent ?? ''] ?? [];
-    st.order = [...(st.order ?? []).filter(x => st.items[x] && !siblings.includes(x)), ...siblings];
+    pinSiblings(st, parent);
     return `Moved ${st.items[id].title}`;
   };
 

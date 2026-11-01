@@ -1,3 +1,4 @@
+import type { DropMark } from './row-drag';
 import { HEAD, ROW, rowWindow, type RowView } from './rows';
 
 export const EYE =
@@ -11,9 +12,12 @@ export interface HierarchyActions {
   hide(id: string): void;
   focus(id: string): void;
   open(id: string): void;
+  add(id: string): void;
 }
 
 const INDENT = 14;
+/** Width of the eye column. */
+const EYE_W = 32;
 
 /** Windowed rows. Mounted nodes stay put between renders, so hover and double-click survive a selection. */
 export class Hierarchy {
@@ -21,6 +25,8 @@ export class Hierarchy {
   private views: (RowView | null)[] = [];
   private mounted = new Map<number, HTMLElement>();
   private selected: string | null = null;
+  private dragged: string | null = null;
+  private dropEl: HTMLElement | null = null;
 
   constructor(host: HTMLElement, private on: HierarchyActions) {
     this.el = host.ownerDocument.createElement('div');
@@ -50,6 +56,8 @@ export class Hierarchy {
     if (car) return this.on.collapse(car);
     const focus = hit('focus');
     if (focus) return this.on.focus(focus);
+    const add = hit('add');
+    if (add) return this.on.add(add);
     const row = hit('row');
     if (row) this.on.select(row);
   }
@@ -64,6 +72,28 @@ export class Hierarchy {
   setSelected(id: string | null) {
     this.selected = id;
     for (const node of this.mounted.values()) node.classList.toggle('tm-selected', node.dataset.row === id);
+  }
+
+  /** Dims the row being dragged, also if it scrolls out and back. */
+  setDragged(id: string | null) {
+    this.dragged = id;
+    for (const node of this.mounted.values()) node.classList.toggle('tm-dragsrc', node.dataset.row === id);
+  }
+
+  /** The outline or insertion line of a row drag. It rides on the rows, so it scrolls with them. */
+  setDrop(mark: DropMark | null) {
+    if (!mark) {
+      this.dropEl?.remove();
+      this.dropEl = null;
+      return;
+    }
+    this.dropEl ??= this.el.appendChild(this.el.ownerDocument.createElement('div'));
+    const { index, depth, zone, refused } = mark;
+    const line = zone !== 'in' && !refused;
+    const y = HEAD + (zone === 'after' ? index + 1 : index) * ROW;
+    this.dropEl.className = `tm-drop ${refused ? 'tm-drop-no' : line ? 'tm-drop-line' : 'tm-drop-in'}`;
+    this.dropEl.style.top = `${line ? y - 1 : HEAD + index * ROW}px`;
+    this.dropEl.style.left = line ? `${EYE_W + depth * INDENT}px` : '0';
   }
 
   /** Mounts what is in view, drops what left, and moves the lot with one transform. */
@@ -103,6 +133,7 @@ export class Hierarchy {
     row.classList.toggle('tm-group', v.group);
     row.classList.toggle('tm-done', v.isDone);
     row.classList.toggle('tm-selected', v.id === this.selected);
+    row.classList.toggle('tm-dragsrc', v.id === this.dragged);
 
     const eye = make('button', 'tm-eye');
     eye.dataset.eye = v.id;
@@ -130,6 +161,12 @@ export class Hierarchy {
     title.append(v.title);
 
     row.append(eye, indent, toggle, title);
+    if (v.canAdd) {
+      const add = make('button', 'tm-add', '+ Add');
+      add.dataset.add = v.id;
+      add.title = 'Add an item inside this';
+      row.append(add);
+    }
     if (v.group) {
       const focus = make('button', 'tm-fb', '⤢ Focus');
       focus.dataset.focus = v.id;

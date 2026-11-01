@@ -14,6 +14,7 @@ const { vault, pathOf } = vaultFrom(seeded);
 vault.echoMs = 15;
 
 const app = new FakeApp();
+app.vault = vault.app.vault;
 const store = new TaskmasterStore(vault.app, { today: () => seeded.today, debounceMs: 15, writeMs: 25 });
 const leaf = new WorkspaceLeaf(app);
 const view = new TaskmasterView(leaf as never, () => store);

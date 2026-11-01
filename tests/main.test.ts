@@ -3,6 +3,7 @@ import { FakeObsidian } from './store/fake-obsidian';
 
 vi.mock('obsidian', () => ({
   ItemView: class {},
+  FuzzySuggestModal: class {},
   Scope: class {},
   Plugin: class {
     unloaders: (() => void)[] = [];

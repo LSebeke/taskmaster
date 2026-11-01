@@ -189,7 +189,7 @@ export class FakeObsidian {
         if (this.children(file.path).length) throw new Error('Fake: trash notes first');
         this.folders.delete(file.path);
       },
-      getNewFileParent: () => this.folder(this.newNotesFolder),
+      getNewFileParent: () => this.folder(this.newNotesFolder) ?? { path: '/', name: '', children: [] },
     },
     metadataCache: {
       getFileCache: (file: FakeFile) => this.notes.get(file.path)?.cache ?? null,

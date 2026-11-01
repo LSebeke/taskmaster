@@ -1,4 +1,5 @@
-import { kids, moveError, newItemError, type NewItem, type State } from '../engine';
+import { kids, moveError, newItemError, subtree, type NewItem } from '../engine';
+import type { State } from '../engine';
 import { addEdit, linkNote, moveEdit, removeEdit, type Edit } from './edits';
 import { noteFields } from './patch';
 import { movedPath, type StoreApp } from './ports';
@@ -45,18 +46,6 @@ const noteText = (fm: Patch) =>
   `---\n${Object.entries(fm)
     .map(([k, v]) => `${k}: ${JSON.stringify(v)}\n`)
     .join('')}---\n`;
-
-/** Everything under an item, itself first. */
-function subtree(st: State, id: string): string[] {
-  const K = kids(st);
-  const out: string[] = [];
-  const walk = (i: string) => {
-    out.push(i);
-    (K[i] ?? []).forEach(walk);
-  };
-  walk(id);
-  return out;
-}
 
 /** Notes, folders and links, kept in step with the items. Items are keyed by path, so most of this is keeping paths straight. */
 export class Structure {
@@ -136,7 +125,7 @@ export class Structure {
       const id = this.h.follow(item);
       const it = this.h.state.items[id];
       if (!it) return { error: 'That item is gone.' };
-      const ids = subtree(this.h.state, id);
+      const ids = subtree(id, kids(this.h.state));
       const label = ids.length > 1 ? `Deleted ${it.title} and ${ids.length - 1} inside it` : `Deleted ${it.title}`;
       const error = await this.h.atomic(label, async () => {
         await this.h.flushNotes();

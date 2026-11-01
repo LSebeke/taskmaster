@@ -608,6 +608,14 @@ describe('linked notes', () => {
   });
 });
 
+describe('a note created at the vault root', () => {
+  it('has a plain path: Obsidian calls the root /', async () => {
+    o.add(p('a'), task());
+    await boot();
+    expect((await store.linkNew(p('a'), 'Loose')).id).toBe('Loose.md');
+  });
+});
+
 describe('undo across renames', () => {
   it('a group: an edit made before a rename lands on the note after the rename is undone', async () => {
     o.add(p('a'), task(12));
@@ -673,5 +681,22 @@ describe('one at a time', () => {
     await Promise.all([store.undo(), store.undo()]);
     await settle();
     expect(paths()).toEqual([p('T')]);
+  });
+});
+
+describe('where a new item lands', () => {
+  it('last among its siblings, so existing projects keep their colour, through a reload', async () => {
+    o.add(p('Beta'), task());
+    o.add(p('Gamma'), task());
+    await boot();
+    await add({ title: 'Alpha', hours: 1 });
+    const roots = () => Object.keys(items()).filter(i => !items()[i].parent);
+    expect(roots()).toEqual([p('Beta'), p('Gamma'), p('Alpha')]);
+    await settle();
+    expect(roots()).toEqual([p('Beta'), p('Gamma'), p('Alpha')]);
+    await store.flush();
+    store.dispose();
+    await boot();
+    expect(roots()).toEqual([p('Beta'), p('Gamma'), p('Alpha')]);
   });
 });

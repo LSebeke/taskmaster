@@ -9,6 +9,7 @@ export interface TopBarProps {
   st: State;
   ui: UiState;
   onUp(): void;
+  onAdd(where: 'project' | 'item'): void;
   onFocus(id: string | null): void;
   onZoom(ppd: number): void;
   onAxis(axis: Axis): void;
@@ -62,7 +63,7 @@ function ViewMenu({ show, on }: { show: Show; on: ViewMenuActions }) {
   );
 }
 
-export function TopBar({ st, ui, onUp, onFocus, onZoom, onAxis, onLayer, onView, planName, canPlan, onPlan, undoLabel, onUndo }: TopBarProps) {
+export function TopBar({ st, ui, onUp, onAdd, onFocus, onZoom, onAxis, onLayer, onView, planName, canPlan, onPlan, undoLabel, onUndo }: TopBarProps) {
   const path: string[] = [];
   for (let i = ui.focus; i; i = st.items[i].parent) path.unshift(i);
   return (
@@ -79,6 +80,12 @@ export function TopBar({ st, ui, onUp, onFocus, onZoom, onAxis, onLayer, onView,
           </>
         ))}
       </div>
+      <button title="New project" onClick={() => onAdd('project')}>
+        + Project
+      </button>
+      <button title="New item (N)" onClick={() => onAdd('item')}>
+        + Item
+      </button>
       <div class="tm-spacer" />
       <LayerSeg name="Plan" level={ui.plan} onPick={level => onLayer('plan', level)} />
       <LayerSeg name="Forecast" level={ui.fc} onPick={level => onLayer('fc', level)} />

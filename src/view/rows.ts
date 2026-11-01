@@ -31,6 +31,8 @@ export interface RowView {
   collapsed: boolean;
   /** Milestone or external sign, in place of the collapse button. */
   glyph: string | null;
+  /** Children can go in it. */
+  canAdd: boolean;
   /** Done %, blank for milestones and externals. */
   done: string;
   marker: Marker;
@@ -106,6 +108,7 @@ export function rowView(st: State, a: Analysis, row: Row, conflicts: Set<string 
     conflict: ui.show.conflicts && conflicts.has(id),
     collapsed: ui.collapsed.has(id),
     glyph: it.kind === 'ms' ? '◆' : it.kind === 'ext' ? '⛭' : null,
+    canAdd: it.kind === 'item',
     done: it.kind === 'item' ? `${Math.round((b?.pct ?? 0) * 100)}%` : '',
     marker: vsPlan(st, a, id),
   };
