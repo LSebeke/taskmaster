@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { chromium } from 'playwright-core';
+import { structureChecks } from './harness-structure.mjs';
 
 const dev = dirname(fileURLToPath(import.meta.url));
 const shots = resolve(process.env.SHOTS ?? join(dev, '.out/shots'));
@@ -611,6 +612,8 @@ const check = async (name, fn) => {
   });
   await page.close();
 }
+
+await structureChecks({ open, shoot, check, rowByTitle, railTitle, status, settle });
 
 await check('empty vault', async () => {
   const page = await open('theme=light&empty=1');
