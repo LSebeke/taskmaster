@@ -16,6 +16,8 @@ interface FakeNote {
   body: string;
   /** Frontmatter as written, ahead of the cache until the echo arrives. */
   disk?: Frontmatter;
+  /** Body was written: the cache's list items are behind until the echo. */
+  reindex?: boolean;
 }
 
 const STATE_PATH = '_taskmaster/state.json';
@@ -43,6 +45,23 @@ const fileAt = (path: string): FakeFile => ({
   basename: path.split('/').pop()!.replace(/\.[^.]*$/, ''),
   extension: path.split('.').pop()!,
 });
+
+/** The list items Obsidian would index: task lines, outside frontmatter and fences. */
+function taskLines(body: string) {
+  const items: unknown[] = [];
+  let at = 0;
+  let skip: 'yaml' | 'code' | null = body.startsWith('---\n') ? 'yaml' : null;
+  body.split('\n').forEach((line, i) => {
+    if (skip === 'yaml') skip = i > 0 && line === '---' ? null : skip;
+    else if (line.startsWith('```')) skip = skip ? null : 'code';
+    else if (!skip) {
+      const m = /^[\s>]*[-*+] \[(.)\]/.exec(line);
+      if (m) items.push({ task: m[1], position: { start: { offset: at }, end: { offset: at + line.length } } });
+    }
+    at += line.length + 1;
+  });
+  return items;
+}
 
 /** Vault, metadata cache and adapter: the Obsidian surface the store touches, and nothing else. */
 export class FakeObsidian {
@@ -76,7 +95,10 @@ export class FakeObsidian {
         const n = this.written(file);
         const body = fn(n.body);
         this.writes.push({ path: file.path, body });
-        if (body !== n.body) this.echoLater(file.path);
+        if (body !== n.body) {
+          n.reindex = true;
+          this.echoLater(file.path);
+        }
         n.body = body;
         return body;
       },
@@ -161,6 +183,8 @@ export class FakeObsidian {
       const n = this.notes.get(path);
       if (!n) continue;
       n.cache = { ...n.cache, frontmatter: n.disk ?? n.cache?.frontmatter };
+      if (n.reindex) n.cache.listItems = taskLines(n.body);
+      n.reindex = false;
       this.emitChanged(path);
     }
   }

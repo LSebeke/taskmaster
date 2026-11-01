@@ -1,5 +1,5 @@
 import { leavesOf, type Scope } from '../../engine';
-import { deleteLogEntry, editLogEntry, setBudget, setDeadline, setHoursLeft, setPin, setScope, setTotal } from '../../store/edits';
+import { deleteLogEntry, editLogEntry, moveTask, setBudget, setDeadline, setHoursLeft, setPin, setScope, setTotal } from '../../store/edits';
 import { countNotInPlan, planGapText, upcomingExternals, why } from '../explain';
 import { fmtD, h1 } from '../format';
 import { DateField, Deps, EdgeSwitch, LogForm, NumField } from './fields';
@@ -109,7 +109,7 @@ export function Overview({ st, a, id, act, readTodos, previewing, selected, focu
       {!!it.todos?.length && (
         <>
           <h3>To-dos</h3>
-          <Todos a={a} id={id} readTodos={readTodos} />
+          <Todos st={st} a={a} id={id} act={act} readTodos={readTodos} previewing={previewing} />
         </>
       )}
       <Lists st={st} a={a} scope={id} act={act} />
@@ -193,7 +193,19 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
             </div>
           ))}
           <h3>Priority and scope</h3>
-          <Field label="Priority">{level >= 0 ? `Priority ${level + 1}` : 'None'}</Field>
+          <Field label="Priority">
+            {level < 0 ? (
+              'None'
+            ) : (
+              <select aria-label="Priority" value={level} onChange={e => act.apply(moveTask(id, Number(e.currentTarget.value)))}>
+                {st.tiers.map((_, i) => (
+                  <option value={i} key={i}>
+                    Priority {i + 1}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
           <Field label="Scope">
             <select aria-label="Scope" value={it.scope ?? 'must'} onChange={e => act.apply(setScope(id, e.currentTarget.value as Scope))}>
               {SCOPES.map(s => (
@@ -210,7 +222,7 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
       {!ms && (
         <>
           <h3>To-dos</h3>
-          <Todos a={a} id={id} readTodos={readTodos} />
+          <Todos st={st} a={a} id={id} act={act} readTodos={readTodos} previewing={previewing} />
         </>
       )}
       <h3>Linked notes</h3>

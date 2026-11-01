@@ -3,6 +3,7 @@ import type { State } from '../engine';
 export type LayerLevel = 'off' | 'ghost' | 'solid';
 export type LayerName = 'plan' | 'fc';
 export type Axis = 'date' | 'cw';
+export type RailTab = 'overview' | 'todo';
 
 /** Everything the View menu can switch. */
 export const DEFAULT_SHOW = {
@@ -52,6 +53,11 @@ export interface UiState {
   hiddenOpen: boolean;
   /** Week whose capacity is being edited on the load strip. */
   weekEdit: number | null;
+  tab: RailTab;
+  /** The overall to-do list, even with a project focused. */
+  todoAll: boolean;
+  /** Tasks expanded in the to-do lists. */
+  todoOpen: Set<string>;
   /** Pixels per day. */
   ppd: number;
   plan: LayerLevel;
@@ -70,6 +76,9 @@ export const defaultUi = (): UiState => ({
   hidden: new Set(),
   hiddenOpen: false,
   weekEdit: null,
+  tab: 'overview',
+  todoAll: false,
+  todoOpen: new Set(),
   ppd: 7,
   plan: 'solid',
   fc: 'ghost',
@@ -132,6 +141,12 @@ export function toggleCollapsed(ui: UiState, id: string): UiState {
   const collapsed = new Set(ui.collapsed);
   if (!collapsed.delete(id)) collapsed.add(id);
   return { ...ui, collapsed };
+}
+
+export function toggleTodoOpen(ui: UiState, id: string): Pick<UiState, 'todoOpen'> {
+  const todoOpen = new Set(ui.todoOpen);
+  if (!todoOpen.delete(id)) todoOpen.add(id);
+  return { todoOpen };
 }
 
 const isInside = (st: State, id: string, ancestor: string) => {

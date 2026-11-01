@@ -1,4 +1,4 @@
-import { analyze, depError, editLog, iso, kids, logHours as engineLog, setLeft, setTotal as engineTotal, updatePlan as enginePlan, type Analysis, type Day, type Item, type Scope, type State } from '../engine';
+import { addTier, analyze, depError, editLog, iso, kids, logHours as engineLog, moveToTier, removeTier, setLeft, setTotal as engineTotal, updatePlan as enginePlan, type Analysis, type Day, type Item, type Scope, type State } from '../engine';
 
 /**
  * One user edit. Changes the state it is given, a copy, and returns the label for the status bar and
@@ -152,6 +152,33 @@ export const updatePlan =
   st => {
     const n = enginePlan(st, analyze(st), ids.filter(id => st.items[id]), deep);
     return n ? `Plan updated on ${n} item${n > 1 ? 's' : ''}` : undefined;
+  };
+
+/** Into level `level`, before `before`, else last. Inside its own level this only changes the order. */
+export const moveTask =
+  (id: string, level: number, before?: string | null): Edit =>
+  st => {
+    const it = st.items[id];
+    const from = st.tiers.findIndex(t => t.includes(id));
+    if (!it || from < 0 || !st.tiers[level]) return;
+    st.tiers = moveToTier(st.tiers, id, level, before);
+    return from === level ? `Reordered ${it.title}` : `Moved ${it.title} to Priority ${level + 1}`;
+  };
+
+/** A new empty level at index `at`. */
+export const addLevel =
+  (at: number): Edit =>
+  st => {
+    st.tiers = addTier(st.tiers, at);
+    return 'Added a priority level';
+  };
+
+export const removeLevel =
+  (at: number): Edit =>
+  st => {
+    if (st.tiers[at]?.length !== 0) return;
+    st.tiers = removeTier(st.tiers, at);
+    return 'Removed an empty priority level';
   };
 
 /** Logged but not started. Cheap, so `analyze` only runs when something qualifies. */
