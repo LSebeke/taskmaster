@@ -273,7 +273,9 @@ export function TreeFoot({ st, roots }: { st: State; roots: string[] }) {
   return (
     <>
       <b>Weekly load</b>
-      <div class="tm-sub tm-small">Line: capacity. Labelled weeks are overrides. Click a week to edit.</div>
+      <div class="tm-sub tm-small tm-foot-hint" title="Line: capacity. Labelled weeks are overrides. Click a week to edit.">
+        Line: capacity. Labelled weeks are overrides. Click a week to edit.
+      </div>
       <div class="tm-foot-roots">
         {roots.map((r, i) => (
           <span class="tm-small" key={r}>

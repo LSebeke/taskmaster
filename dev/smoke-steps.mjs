@@ -224,6 +224,9 @@ export function smokeSteps(w) {
         await w.settle();
         assert.equal(w.state().timer.id, 'Projects/Gamma.md');
         await w.shoot('08-timer');
+        const bars = await w.page.evaluate(() => [...document.querySelectorAll('.status-bar .plugin-taskmaster')].map(e => e.textContent));
+        assert.deepEqual(bars.filter(Boolean), [], 'the timer shows twice');
+        assert.equal(await w.page.locator('.tm-timer').count(), 1);
         // An hour on the clock, without waiting one.
         await store(s => {
           const now = s.now;
@@ -256,6 +259,34 @@ export function smokeSteps(w) {
         await w.settle();
         assert.deepEqual(w.state(), before);
         await w.assertColours();
+      },
+    ],
+    [
+      'nothing is clipped: status bar, legend, column foot',
+      async () => {
+        const cap = await w.page.locator('.tm-cap').boundingBox();
+        const bar = await w.page.locator('.status-bar').boundingBox();
+        assert(cap.x + cap.width <= bar.x, `capacity ends at ${cap.x + cap.width}, Obsidian's status bar starts at ${bar.x}`);
+        const legend = await w.page.locator('.tm-legend').boundingBox();
+        assert(legend.height <= 44, `legend ${legend.height}px tall`);
+        const foot = await w.page.locator('.tm-tree-foot').evaluate(e => [e.scrollHeight, e.clientHeight]);
+        assert(foot[0] <= foot[1], `foot ${foot}`);
+      },
+    ],
+    [
+      'the timer goes to Obsidian\'s bar once the view is away',
+      async () => {
+        await w.select('Gamma');
+        await button('Start timer').click();
+        await w.sleep(200);
+        await w.page.evaluate(() => app.workspace.getLeaf('tab').setViewState({ type: 'empty', active: true }));
+        await w.sleep(400);
+        const shown = await w.page.evaluate(() => [...document.querySelectorAll('.status-bar .plugin-taskmaster')].map(e => e.textContent).join(''));
+        yes(shown, /Gamma/);
+        await w.command('taskmaster:toggle-timer');
+        await w.command('taskmaster:open');
+        await w.settle();
+        assert.equal(w.state().timer, undefined);
       },
     ],
     [

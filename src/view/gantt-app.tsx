@@ -54,6 +54,8 @@ export interface ViewHost {
   pickNote(done: (pick: NotePick) => void): void;
   /** Stops the timer and asks for hours left. */
   stopTimer(): void;
+  /** What floats over the view's bottom right corner, if anything: Obsidian's status bar. */
+  floating?(): HTMLElement | null;
 }
 
 /** The status bar's clock. Minutes are what it shows. */
@@ -63,6 +65,8 @@ const WHEEL_OUT = 0.87;
 const TODAY_AT = 0.22;
 const TIP_W = 310;
 const WEEK_EDIT_W = 130;
+/** Between the status bar's last item and what floats over the corner. */
+const STATUS_GAP = 10;
 /** Room under the last row, so it clears the load strip. */
 const TAIL = 12;
 
@@ -165,6 +169,9 @@ export class GanttApp {
     this.unmove = store.onMove((from, to) => this.onMove(from, to));
     this.resize = new ResizeObserver(() => this.onResize());
     this.resize.observe(this.chart);
+    this.resize.observe(this.status);
+    const floating = view.floating?.();
+    if (floating) this.resize.observe(floating);
     this.clock = setInterval(() => this.tick(), TICK_MS);
   }
 
@@ -693,7 +700,21 @@ export class GanttApp {
 
   private onResize() {
     if (!this.centred) this.centreToday();
+    this.insetStatus();
     this.paint();
+  }
+
+  /** Keeps the status bar's right end out from under what floats over the corner. */
+  private insetStatus() {
+    const over = this.view.floating?.()?.getBoundingClientRect();
+    const bar = this.status.getBoundingClientRect();
+    const covered = over && over.width > 0 && over.left < bar.right && over.right > bar.left && over.bottom > bar.top && over.top < bar.bottom;
+    this.status.style.paddingRight = covered ? `${Math.ceil(bar.right - over.left) + STATUS_GAP}px` : '';
+  }
+
+  /** The status bar is showing, so its timer is seen. */
+  get statusOnScreen() {
+    return this.status.offsetParent !== null;
   }
 
   private schedulePaint() {

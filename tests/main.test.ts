@@ -19,6 +19,7 @@ vi.mock('obsidian', () => ({
     register(cb: () => void) {
       this.unloaders.push(cb);
     }
+    registerEvent() {}
     registerView(type: string) {
       this.views.push(type);
     }
@@ -29,7 +30,7 @@ vi.mock('obsidian', () => ({
       this.settingTabs.push(t);
     }
     addStatusBarItem() {
-      const item = { textContent: '' };
+      const item = { textContent: '', style: {} };
       this.statusItems.push(item);
       return item;
     }
@@ -50,7 +51,7 @@ const setup = () => {
     isReady = true;
     waiting.splice(0).forEach(cb => cb());
   };
-  const app = { ...o.app, workspace: { ...open, onLayoutReady } };
+  const app = { ...o.app, workspace: { ...open, onLayoutReady, on: vi.fn() } };
   const plugin = new (TaskmasterPlugin as unknown as new (app: unknown) => InstanceType<typeof TaskmasterPlugin>)(app);
   return { o, plugin, leaf, open, ready };
 };

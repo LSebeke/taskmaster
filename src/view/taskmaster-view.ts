@@ -34,6 +34,7 @@ export class TaskmasterView extends ItemView {
       openNote: path => void this.app.workspace.openLinkText(path, ''),
       pickNote: done => new NotePicker(this.app, done).open(),
       stopTimer: () => stopAndAsk(this.app, store),
+      floating: () => this.contentEl.ownerDocument.querySelector<HTMLElement>('.status-bar'),
     });
     this.gantt = gantt;
     this.scope = new Scope(this.app.scope);

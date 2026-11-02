@@ -30,13 +30,18 @@ export function stopAndAsk(app: App, store: Pick<TimerStore, 'state' | 'stopTime
   if (stopped?.hours) new HoursLeftModal(app, store, stopped).open();
 }
 
-/** Keeps an element saying what runs, wherever the view is. Returns the stop. */
-export function watchTimer(el: HTMLElement, store: TimerStore): () => void {
+/**
+ * Keeps an element saying what runs while no view shows it, so the timer appears once. `inView` is
+ * whether a view does; `onLayout` is how to hear that this may have changed. Returns the stop.
+ */
+export function watchTimer(el: HTMLElement, store: TimerStore, inView: () => boolean, onLayout: (show: () => void) => void): () => void {
   const show = () => {
-    const t = store.timer;
+    const t = inView() ? null : store.timer;
     el.textContent = t ? timerText(store.state, t, store.time()) : '';
+    el.style.display = t ? '' : 'none';
   };
   show();
+  onLayout(show);
   const off = store.subscribe(show);
   const tick = setInterval(show, TICK_MS);
   return () => {

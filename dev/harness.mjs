@@ -115,6 +115,18 @@ const check = async (name, fn) => {
     const text = await page.locator('.tm-root').textContent();
     for (const word of ['+1 day', 'Reset', 'Stress', 'Theme', 'Scenarios']) assert.ok(!text.includes(word), word);
   });
+  await check('narrow window: wrapped legend leaves no gap, column foot still fits, nothing sits under the floating status bar', async () => {
+    const narrow = await open('theme=light', 'light', { width: 1100, height: 700 });
+    const height = await narrow.locator('.tm-legend').evaluate(e => e.getBoundingClientRect().height);
+    assert.ok(height <= 44, `legend ${height}px tall`);
+    const foot = await narrow.locator('.tm-tree-foot').evaluate(e => [e.scrollHeight, e.clientHeight]);
+    assert.ok(foot[0] <= foot[1], `foot ${foot}`);
+    const cap = await narrow.locator('.tm-cap').boundingBox();
+    const bar = await narrow.locator('.status-bar').boundingBox();
+    assert.ok(cap.x + cap.width <= bar.x, `capacity ends at ${cap.x + cap.width}, status bar starts at ${bar.x}`);
+    await shoot(narrow, 'narrow');
+    await narrow.close();
+  });
   await check('a view that opens before the stylesheet applies picks its colours up by itself', async () => {
     const late = await open('theme=light&lateCss', 'light', tall);
     await late.evaluate(() => new Promise(requestAnimationFrame));

@@ -24,9 +24,23 @@ export default class TaskmasterPlugin extends Plugin {
     this.app.workspace.onLayoutReady(() => {
       void store.load();
       // Outside the view too, as the timer's command works with the view closed.
-      this.register(watchTimer(this.addStatusBarItem(), store));
+      this.register(
+        watchTimer(
+          this.addStatusBarItem(),
+          store,
+          () => this.timerOnView(),
+          show => {
+            this.registerEvent(this.app.workspace.on('layout-change', show));
+            this.registerEvent(this.app.workspace.on('active-leaf-change', show));
+          },
+        ),
+      );
     });
     return store;
+  }
+
+  private timerOnView(): boolean {
+    return this.app.workspace.getLeavesOfType(VIEW_TYPE).some(leaf => (leaf.view as TaskmasterView).gantt?.statusOnScreen);
   }
 
   private async openView(): Promise<TaskmasterView> {
