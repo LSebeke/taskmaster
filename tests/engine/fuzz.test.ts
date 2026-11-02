@@ -100,5 +100,6 @@ describe('fast schedule vs. the frozen reference', () => {
   it('the perf scenarios', () => {
     expectSame(perfSeed({ tasks: 300, endPinned: 0.05 }), {}, 'one a week');
     expectSame(perfSeed({ tasks: 300, weekly: 100, endPinned: 0.1 }), {}, 'tight pins');
+    expectSame(perfSeed({ tasks: 300, weekly: 100, endPinned: 0.1, levels: 3 }), {}, 'one long level');
   });
 });

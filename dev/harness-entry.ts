@@ -39,6 +39,11 @@ let started = 0;
 const loading = performance.now();
 void store.load().then(async () => {
   const loadMs = performance.now() - loading;
+  // A view opens in a window that is already drawing. A page's own first frame comes when the browser pleases.
+  if (perf) {
+    await painted();
+    await painted();
+  }
   started = performance.now();
   await view.onOpen();
   const openMs = performance.now() - started;

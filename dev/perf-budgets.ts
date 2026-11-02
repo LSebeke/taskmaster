@@ -9,12 +9,15 @@ export const SPEC = {
 } as const;
 
 /**
- * Only for `npm test`, which runs beside other workers on machines nobody controls. It catches a change
- * that breaks a budget, not one that nears it. `npm run perf` stays the judge and allows no margin.
+ * Only for `npm test` and `npm run perf -- --ci`, on machines nobody controls. It catches a change
+ * that breaks a budget, not one that nears it. Plain `npm run perf` stays the judge and allows no margin.
  */
 export const CI_MARGIN = 1.5;
 
 export const CI = (budget: number) => budget * CI_MARGIN;
+
+/** A frame interval lands on a vsync, give or take. One dropped frame doubles it, so this hides none. */
+export const VSYNC_JITTER = 1.1;
 
 /** Share of open tasks with only an end pin. The demo data has 1 in 20. */
 export const END_PINNED = 0.05;
@@ -27,6 +30,9 @@ export const SCENARIOS = [
   // Most of a real vault sits in the last level, as new tasks land there.
   { name: `recalc 1000 tasks, ${END_PINNED * 100}% end-pinned, 3 levels`, budget: SPEC.recalc1000, seed: { tasks: 1000, weekly: 300, endPinned: END_PINNED, levels: 3 } },
 ] as const;
+
+/** Past what one person can do in the 4-year horizon, so the whole horizon runs. Reported, as 1,000 tasks is 1,000 tasks. */
+export const OVERLOADED = { name: `recalc 1000 tasks, ${END_PINNED * 100}% end-pinned, 40h week, past the horizon`, budget: SPEC.recalc1000, seed: { tasks: 1000, endPinned: END_PINNED } };
 
 export const median = (xs: number[]) => pct(xs, 0.5);
 

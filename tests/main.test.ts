@@ -37,6 +37,7 @@ vi.mock('obsidian', () => ({
 }));
 
 const { default: TaskmasterPlugin } = await import('../src/main');
+const { CI, median, SPEC } = await import('../dev/perf-budgets');
 
 const setup = () => {
   const o = new FakeObsidian();
@@ -55,6 +56,16 @@ const setup = () => {
 };
 
 describe('plugin load', () => {
+  it('onload stays inside its budget', () => {
+    const times = Array.from({ length: 30 }, () => {
+      const { plugin } = setup();
+      const t = performance.now();
+      plugin.onload();
+      return performance.now() - t;
+    });
+    expect(median(times)).toBeLessThan(CI(SPEC.onload));
+  });
+
   it('does not read the vault for a view restored before the layout is ready', async () => {
     const { o, plugin, ready } = setup();
     o.add('Projects/a.md', { 'tm-type': 'item' });

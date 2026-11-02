@@ -1,6 +1,7 @@
 /**
  * `npm run perf`: every budget in the spec's Performance table, in Node and in headless Chromium through
- * the harness. Judged at the spec's own numbers on p95. Exits 1 when anything is over. Raw samples: dev/.out/perf.json.
+ * the harness. Judged at the spec's own numbers on p95, or with the CI margin under `--ci`. Exits 1 when
+ * anything is over. Raw samples: dev/.out/perf.json.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -18,8 +19,9 @@ await build({ ...common, entryPoints: [join(dev, 'harness-entry.ts')], outfile: 
 await build({ ...common, entryPoints: [join(dev, 'perf-plugin-entry.ts')], outfile: join(out, 'perf-plugin.js'), format: 'iife' });
 await build({ ...common, entryPoints: [join(dev, 'perf-node.ts')], outfile: join(out, 'perf-node.mjs'), format: 'esm', platform: 'node' });
 await build({ entryPoints: [join(dev, 'perf-budgets.ts')], outfile: join(out, 'perf-budgets.mjs'), format: 'esm', logLevel: 'warning' });
-const { SCENARIOS, SPEC, END_PINNED, median, pct } = await import(pathToFileURL(join(out, 'perf-budgets.mjs')));
+const { CI_MARGIN, OVERLOADED, SCENARIOS, SPEC, END_PINNED, VSYNC_JITTER, median, pct } = await import(pathToFileURL(join(out, 'perf-budgets.mjs')));
 
+const margin = process.argv.includes('--ci') ? CI_MARGIN : 1;
 const OPEN_SAMPLES = 15;
 const ONLOAD_SAMPLES = 15;
 const RECALC_WARM = 10;
@@ -41,6 +43,7 @@ function report(where, name, samples, budget, unit = 'ms') {
 const node = JSON.parse(execFileSync('node', [join(out, 'perf-node.mjs')], { encoding: 'utf8', maxBuffer: 1 << 26 }));
 report('node', 'onload', node.onload, SPEC.onload);
 for (const r of node.recalc) report('node', r.name, r.samples, r.budget);
+for (const r of node.signals) report('node', `${r.name} (no budget)`, r.samples);
 
 const browser = await chromium.launch({ executablePath: '/usr/bin/chromium' });
 const url = seed => `${pathToFileURL(join(dev, 'harness.html'))}?theme=light&perf=${encodeURIComponent(JSON.stringify(seed))}`;
@@ -96,7 +99,7 @@ async function fresh(seed) {
 // Recalculation.
 {
   const page = await fresh({ tasks: 10 });
-  for (const { name, budget, seed } of SCENARIOS) {
+  for (const { name, budget, seed } of [...SCENARIOS, OVERLOADED]) {
     const samples = await page.evaluate(([s, w, n]) => window.tm.recalc(s, w, n), [seed, RECALC_WARM, RECALC_SAMPLES]);
     report('chromium', name, samples, budget);
   }
@@ -168,7 +171,7 @@ async function frames(label, seed) {
     const paints = r.works.filter(x => x > 0);
     if (paints.length < FRAMES * 0.8) problems.push(`${label} ${kind}: only ${paints.length} of ${FRAMES} frames painted`);
     report('chromium', `${kind} ${label}, work per frame`, paints, SPEC.frame);
-    report('chromium', `${kind} ${label}, frame interval`, r.intervals, SPEC.frame * 1.1);
+    report('chromium', `${kind} ${label}, frame interval`, r.intervals, SPEC.frame * VSYNC_JITTER);
     const recalculated = r.recomputes + r.signals + r.notified;
     rows.push({ where: 'chromium', name: `${kind} ${label}, recalculations`, budget: 0, n: FRAMES, median: recalculated, p95: recalculated, max: recalculated, unit: 'runs' });
   }
@@ -212,9 +215,10 @@ await frames('1000 tasks', LARGE_SEED);
 }
 await browser.close();
 
-const verdict = r => (r.budget == null ? '' : r.p95 <= r.budget ? 'ok' : 'OVER');
+const verdict = r => (r.budget == null ? '' : r.p95 <= r.budget * margin ? 'ok' : 'OVER');
 const f = x => (Number.isInteger(x) ? String(x) : x.toFixed(2));
 const width = Math.max(...rows.map(r => `${r.where} ${r.name}`.length));
+if (margin !== 1) console.log(`Judged at budget x ${margin}, for CI. The budget column is the spec's.`);
 console.log(`${'measure'.padEnd(width)}  budget  median     p95     max    n`);
 for (const r of rows) {
   const cells = [r.budget == null ? '-' : f(r.budget), f(r.median), f(r.p95), f(r.max)].map(c => c.padStart(6));
