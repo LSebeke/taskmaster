@@ -40,6 +40,8 @@ export class FakeWorkspace extends Events {
   getActiveViewOfType() {
     return null;
   }
+  /** The layout never gets ready: what `onload` defers stays deferred. */
+  onLayoutReady(_cb: () => void) {}
 }
 
 /** Every Notice shown. */
@@ -232,6 +234,18 @@ export abstract class FuzzySuggestModal<T> {
 
   close() {
     this.el?.remove();
+  }
+}
+
+/** Enough for `onload`, for measuring it. */
+export class Plugin {
+  constructor(public app: FakeApp, public manifest?: unknown) {}
+  registerView(_type: string, _make: unknown) {}
+  addCommand(_c: unknown) {}
+  addSettingTab(_t: unknown) {}
+  register(_cb: () => void) {}
+  addStatusBarItem() {
+    return document.createElement('div');
   }
 }
 

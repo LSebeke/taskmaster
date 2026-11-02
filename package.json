@@ -9,7 +9,8 @@
     "build": "node esbuild.config.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "harness": "node dev/harness.mjs"
+    "harness": "node dev/harness.mjs",
+    "perf": "node dev/perf.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
