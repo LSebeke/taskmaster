@@ -129,6 +129,11 @@ async function launch() {
   await page.waitForFunction(() => window.app?.workspace?.layoutReady, null, { timeout: 30_000 });
   await page.setViewportSize(VIEWPORT);
   await sleep(300);
+  const trust = page.getByRole('button', { name: 'Trust author and enable plugins' });
+  if (await trust.isVisible()) {
+    await trust.click();
+    await page.keyboard.press('Escape');
+  }
 }
 
 /** Obsidian's own chatter in a sandbox with no network or GPU, none of it ours. */
@@ -136,11 +141,14 @@ const benign = text => /net::ERR|Failed to load resource|WebGL|GPU|Autofill/.tes
 
 async function quit() {
   const running = child;
+  const gone = running ? new Promise(r => running.once('exit', r)) : null;
+  // Closing the window is what makes Electron write its storage out, trust in the plugins included.
+  await page?.evaluate(() => void window.close()).catch(() => undefined);
+  if (gone) await Promise.race([gone, sleep(5000)]);
   await browser?.close().catch(() => undefined);
   browser = null;
   page = null;
-  if (!running) return;
-  const gone = new Promise(r => running.once('exit', r));
+  if (!running || child !== running) return;
   const group = sig => {
     try {
       process.kill(-running.pid, sig);
@@ -179,10 +187,11 @@ const reloadPlugin = () =>
     await app.plugins.disablePlugin('taskmaster');
     await app.plugins.enablePlugin('taskmaster');
   });
-const shoot = async name => {
+const shotPath = name => {
   mkdirSync(shots, { recursive: true });
-  await page.screenshot({ path: join(shots, `${name}.png`) });
+  return join(shots, `${name}.png`);
 };
+const shoot = name => page.screenshot({ path: shotPath(name) });
 const barPoint = (title, fc = true) =>
   page.evaluate(
     ([t, f]) => {
@@ -257,14 +266,12 @@ async function assertColours() {
 
 // --- Run ---
 
-const world = { sleep, inDays, TODAY, read, has, notes, state, settle, row, rail, status, rowTitles, command, select, clearUi, reloadPlugin, shoot, barPoint, dragRow, addVia, assertColours, setTheme, launch, quit, vaultPath, get page() { return page; }, problems };
+const world = { sleep, inDays, TODAY, read, has, notes, state, settle, row, rail, status, rowTitles, command, select, clearUi, reloadPlugin, shoot, shotPath, barPoint, dragRow, addVia, assertColours, setTheme, launch, quit, vaultPath, get page() { return page; }, problems };
 
 const steps = [];
 const step = (name, fn) => steps.push({ name, fn });
 
 step('load: plugin enables, no warnings, rows show', async () => {
-  // A new vault asks whether to trust community plugins. The answer is given just below.
-  await page.keyboard.press('Escape');
   await page.evaluate(async () => {
     await app.plugins.setEnable(true);
     await app.plugins.enablePlugin('taskmaster');
