@@ -1,5 +1,5 @@
-import type { ItemKind, KidsMap, State } from '../engine';
-import { movedPath } from '../store/ports';
+import type { ItemKind, KidsMap, NewItem, State } from '../engine';
+import { mover } from '../store/ports';
 
 export type LayerLevel = 'off' | 'ghost' | 'solid';
 export type LayerName = 'plan' | 'fc';
@@ -151,6 +151,23 @@ export function openForm(ui: UiState, st: State, K: KidsMap, where: 'project' | 
   return { ...ui, form, nonces: form.nonce, tab: 'overview', show: { ...ui.show, rail: true } };
 }
 
+/** The form after adding `id`: it stays open for the next item, and the new one stays in sight. */
+export function afterAdd(ui: UiState, st: State, n: NewItem, id: string): UiState {
+  const it = st.items[id];
+  if (!ui.form || !it) return ui;
+  const project = n.kind !== 'ext' && !n.parent;
+  const external = n.kind === 'ext';
+  const collapsed = new Set(ui.collapsed);
+  if (it.parent) collapsed.delete(it.parent);
+  return {
+    ...ui,
+    collapsed,
+    // New work outside the focus would be out of sight.
+    focus: ui.focus && !external && !isInside(st, id, ui.focus) ? null : ui.focus,
+    form: { ...ui.form, parent: project ? id : ui.form.parent, last: project || external ? null : id, added: [...ui.form.added, it.title] },
+  };
+}
+
 /** Closes what is open, then clears selection, then goes up. */
 export function escape(ui: UiState, st: State): UiState {
   if (ui.form) return { ...ui, form: null };
@@ -195,7 +212,7 @@ export function toggleHidden(ui: UiState, id: string, st: State): UiState {
 
 /** A note or folder was renamed. Everything the view holds is keyed by path. */
 export function rekeyUi(ui: UiState, from: string, to: string): UiState {
-  const move = (p: string) => movedPath(p, from, to);
+  const move = mover(from, to);
   const moveNull = (p: string | null) => p && move(p);
   const moveSet = (s: Set<string>) => new Set([...s].map(move));
   const { form, planDlg } = ui;

@@ -290,6 +290,18 @@ export function smokeSteps(w) {
       },
     ],
     [
+      'the last child trashed from outside gives its parent the hours back',
+      async () => {
+        yes(w.read('Projects/Beta/Beta.md'), /tm-budget: 16/);
+        await w.page.evaluate(() => void app.fileManager.trashFile(app.vault.getFileByPath('Projects/Beta/Gadget.md')));
+        await w.settle();
+        await w.settle();
+        const n = w.read('Projects/Beta/Beta.md');
+        assert.doesNotMatch(n, /tm-budget/);
+        yes(n, /tm-left: 16/);
+      },
+    ],
+    [
       'final look, light and dark',
       async () => {
         await w.select('Alpha');

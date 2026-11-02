@@ -1,7 +1,7 @@
 import type { Analysis, PlanEntry, State } from './types';
 
 export function snapshot(a: Analysis, st: State, id: string): PlanEntry {
-  const b = a.by[id];
+  const b = a.results[id];
   return { start: b.start ?? st.today, end: b.end ?? st.today, hours: b.spent + b.left };
 }
 
@@ -12,8 +12,8 @@ export function updatePlan(st: State, a: Analysis, ids: string[], deep: boolean)
   const set = new Set<string>();
   const walk = (i: string) => {
     if (st.items[i].kind === 'ext') return;
-    if (a.by[i]?.end != null) set.add(i);
-    if (deep) (a.K[i] ?? []).forEach(walk);
+    if (a.results[i]?.end != null) set.add(i);
+    if (deep) (a.kids[i] ?? []).forEach(walk);
   };
   ids.forEach(walk);
   if (!set.size) return 0;

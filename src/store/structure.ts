@@ -2,7 +2,7 @@ import { kids, moveError, newItemError, subtree, type NewItem } from '../engine'
 import type { State } from '../engine';
 import { addEdit, linkNote, moveEdit, removeEdit, type Edit } from './edits';
 import { noteFields } from './patch';
-import { movedPath, type StoreApp } from './ports';
+import { attemptAll, movedPath, type StoreApp } from './ports';
 import type { Patch } from './writer';
 
 /** What a structural change came to. `error` says why it was refused; `id` is where the item ended up. */
@@ -139,13 +139,14 @@ export class Structure {
         this.h.apply(removeEdit(id));
         this.h.record({
           label,
-          undo: async () => {
-            for (const s of trashed) {
-              await this.ensureFolder(dirOf(s.path));
-              await this.app.vault.create(s.path, s.text);
-              this.h.seed(s.path, s.fm);
-            }
-          },
+          undo: () =>
+            attemptAll(
+              trashed.map(s => async () => {
+                await this.ensureFolder(dirOf(s.path));
+                await this.app.vault.create(s.path, s.text);
+                this.h.seed(s.path, s.fm);
+              }),
+            ),
           moved: (from, to) => {
             for (const s of trashed) s.path = movedPath(s.path, from, to);
           },
@@ -276,13 +277,20 @@ export class Structure {
     return made;
   }
 
-  /** `title`, or the first numbered form neither a note nor a folder holds. `own` does not count as a clash. */
+  /**
+   * `title`, or the first numbered form no note in the vault has and no folder here holds: a bare
+   * `[[link]]` goes by title alone, so a second note of that name could take it over. `own` does not
+   * count as a clash, nor does a title it already has.
+   */
   private async freeTitle(dir: string, title: string, own?: string): Promise<string> {
     const { adapter } = this.app.vault;
     const ownBox = own && this.isBox(own) ? dirOf(own) : undefined;
+    const ownTitle = own && nameOf(own);
+    const titles = new Set(this.app.vault.getMarkdownFiles().map(f => f.basename.toLowerCase()));
     const taken = async (t: string) => {
       const file = md(dir, t);
       const box = join(dir, t);
+      if (t !== ownTitle && titles.has(t.toLowerCase())) return true;
       return (file !== own && (await adapter.exists(file))) || (box !== ownBox && (await adapter.exists(box)));
     };
     let name = title;

@@ -1,6 +1,6 @@
 import { moveError, type KidsMap, type State } from '../engine';
 import { moveEdit, type Edit } from '../store/edits';
-import { h1 } from './format';
+import { fmtH } from './format';
 
 /** Press and move this far before a row counts as dragged, so clicks stay clicks. */
 const START_PX = 4;
@@ -46,10 +46,10 @@ export function dropOn(st: State, K: KidsMap, id: string, target: string, share:
 function dropText(st: State, K: KidsMap, id: string, target: string, d: Drop): string {
   const T = st.items[target];
   const hours = (T.spent ?? 0) + (T.left ?? 0);
-  const place = d.zone === 'in' ? `Move into ${T.title}${!K[target] && hours > 0 && T.budget == null ? `: its ${h1(hours)}h become its budget` : ''}` : `Place ${d.zone} ${T.title}${d.parent ? '' : ' as a project'}`;
+  const place = d.zone === 'in' ? `Move into ${T.title}${!K[target] && hours > 0 && T.budget == null ? `: its ${fmtH(hours)}h become its budget` : ''}` : `Place ${d.zone} ${T.title}${d.parent ? '' : ' as a project'}`;
   const from = st.items[id].parent;
   const P = from && from !== d.parent ? st.items[from] : null;
-  return P && K[from!]?.length === 1 && P.budget != null ? `${place}. ${P.title}'s ${h1(P.budget)}h budget becomes hours again` : place;
+  return P && K[from!]?.length === 1 && P.budget != null ? `${place}. ${P.title}'s ${fmtH(P.budget)}h budget becomes hours again` : place;
 }
 
 export interface RowDragHost {

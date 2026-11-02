@@ -40,7 +40,7 @@ describe('stale days', () => {
   it('moves the flag at once, persists, undoes', async () => {
     o.add('Projects/s.md', task(6, { 'tm-started': '2026-10-20', 'tm-left-updated': '2026-10-30' }));
     await boot();
-    const stale = () => analyze(store.state).by['Projects/s.md'].stale;
+    const stale = () => analyze(store.state).results['Projects/s.md'].stale;
     expect(stale()).toBeUndefined();
     store.apply(setStaleDays(3));
     expect(stale()).toBe(3);
@@ -80,7 +80,7 @@ describe('holidays', () => {
   it('a holiday takes the day out of the forecast, persists, and undo restores it', async () => {
     await boot();
     // 12h at 6h/day: 2 and 3 Nov. With 3 Nov off, 2 and 4 Nov.
-    const end = () => analyze(store.state).by['Projects/a.md'].end;
+    const end = () => analyze(store.state).results['Projects/a.md'].end;
     expect(end()).toBe(D('2026-11-03'));
     store.apply(addHoliday(D('2026-11-03')));
     expect(end()).toBe(D('2026-11-04'));

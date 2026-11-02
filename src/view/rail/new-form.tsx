@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { dayOf, type Analysis, type Item, type ItemKind, type NewItem, type Scope, type State } from '../../engine';
-import { newDepChoices, parentChoices } from '../deps';
-import { h1 } from '../format';
+import { INDENT, newDepChoices, parentChoices } from '../deps';
+import { fmtH } from '../format';
 import type { FormState } from '../ui-state';
 import { Card, Field, type RailActions } from './parts';
 
@@ -11,7 +11,6 @@ const KINDS: [ItemKind, string][] = [
   ['ext', 'External'],
 ];
 const SCOPES: Scope[] = ['must', 'should', 'could'];
-const INDENT = '   ';
 
 const day = (v: string) => (v ? dayOf(v) : undefined);
 
@@ -36,7 +35,7 @@ function budgetNote(P: Item | null, hasKids: boolean): string | null {
   const hours = (P.spent ?? 0) + (P.left ?? 0);
   if (!(hours > 0)) return null;
   const budget = P.budget == null ? `Adding inside it turns those into its budget, and only the items inside it get scheduled.` : `Only the items inside it get scheduled from now on.`;
-  return `${P.title} has ${h1(hours)}h. ${budget}`;
+  return `${P.title} has ${fmtH(hours)}h. ${budget}`;
 }
 
 /** One form for every way of adding. Adding keeps it open for the next item. */
@@ -58,12 +57,12 @@ export function NewForm({ st, a, form, act }: Props) {
   useLayoutEffect(() => name.current?.focus(), []);
 
   const P = parent ? st.items[parent] : null;
-  const firstChildLevel = parent && !a.K[parent] ? st.tiers.findIndex(t => t.includes(parent)) : -1;
+  const firstChildLevel = parent && !a.kids[parent] ? st.tiers.findIndex(t => t.includes(parent)) : -1;
   const level = tier ?? (firstChildLevel >= 0 ? firstChildLevel : st.tiers.length - 1);
-  const parents = useMemo(() => parentChoices(st, a.K), [st.items, a]);
+  const parents = useMemo(() => parentChoices(st, a.kids), [st.items, a]);
   const choices = useMemo(() => newDepChoices(st, parent, deps), [st.items, parent, deps]);
   const last = form.last && st.items[form.last] ? st.items[form.last] : null;
-  const convert = budgetNote(P, !!(parent && a.K[parent]));
+  const convert = budgetNote(P, !!(parent && a.kids[parent]));
 
   const submit = async (e: Event) => {
     e.preventDefault();

@@ -66,7 +66,7 @@ describe('hours (spec acceptance)', () => {
     await settle();
     expect(o.frontmatter(p('z'))).toMatchObject({ 'tm-left': 27, 'tm-log': ['2026-11-02 3'], 'tm-left-updated': '2026-11-02' });
     expect(o.frontmatter(p('z'))['tm-started']).toBeUndefined();
-    expect(analyze(store.state).by[p('z')].start).toBe(D('2026-11-09'));
+    expect(analyze(store.state).results[p('z')].start).toBe(D('2026-11-09'));
   });
 
   it('editing that entry to 1h, then deleting it', async () => {
@@ -109,7 +109,7 @@ describe('hours (spec acceptance)', () => {
     o.add(p('a'), item(6, { 'tm-log': ['2026-10-30 2'] }));
     await boot();
     store.apply(setHoursLeft(p('a'), 0));
-    expect(analyze(store.state).by[p('a')].done).toBe(true);
+    expect(analyze(store.state).results[p('a')].done).toBe(true);
     expect(it_('a').left).toBe(0);
   });
 

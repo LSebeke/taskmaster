@@ -58,7 +58,7 @@ describe('the dialog', () => {
     const aa = analyze(planned);
     const ui = openPlan({ ...defaultUi(), focus: 'p' }, planned, aa);
     expect(planRows(planned, aa, ui.planDlg!)).toEqual([
-      { id: 'g', title: 'Firmware', oldEnd: D('2026-11-20'), newEnd: aa.by.g.end, checked: true, plannable: true, group: true },
+      { id: 'g', title: 'Firmware', oldEnd: D('2026-11-20'), newEnd: aa.results.g.end, checked: true, plannable: true, group: true },
       { id: 'd', title: 'd', oldEnd: undefined, newEnd: null, checked: false, plannable: false, group: false },
     ]);
   });

@@ -95,12 +95,12 @@ export class Gestures {
     }
     const bar = host.hit(e);
     if (!bar || !canDrag(host.state, host.analysis, bar)) return;
-    const b = host.analysis.by[bar.id];
+    const b = host.analysis.results[bar.id];
     if (b.start == null || b.end == null) return;
     this.now = {
       type: 'bar',
       id: bar.id,
-      mode: dragZone(host.scale.x(bar.d0), host.scale.x(bar.d1), p.x),
+      mode: dragZone(host.scale.x(bar.startDay), host.scale.x(bar.endDay), p.x),
       startX: e.clientX + host.el.scrollLeft,
       base: { s: b.start, e: b.end },
       days: 0,
@@ -162,7 +162,7 @@ export class Gestures {
     }
     if (p && fc && overDot(fc, host.scale, p.x, p.y - i! * ROW)) return 'crosshair';
     if (!bar) return '';
-    if (p && canDrag(host.state, host.analysis, bar)) return dragZone(host.scale.x(bar.d0), host.scale.x(bar.d1), p.x) === 'body' ? 'grab' : 'ew-resize';
+    if (p && canDrag(host.state, host.analysis, bar)) return dragZone(host.scale.x(bar.startDay), host.scale.x(bar.endDay), p.x) === 'body' ? 'grab' : 'ew-resize';
     return 'pointer';
   }
 

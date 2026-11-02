@@ -27,7 +27,7 @@ function taskLines(text: string): TaskLine[] {
     } else if (f) fence = f;
     else {
       const m = TASK.exec(line);
-      if (m) out.push({ t: line.slice(m[0].length), done: m[2] !== ' ', mark: start + m[1].length, start, end });
+      if (m) out.push({ text: line.slice(m[0].length), done: m[2] !== ' ', mark: start + m[1].length, start, end });
     }
     if (nl < 0) break;
     start = end;
@@ -35,11 +35,11 @@ function taskLines(text: string): TaskLine[] {
   return out;
 }
 
-export const parseTodos = (text: string): Todo[] => taskLines(text).map(({ t, done }) => ({ t, done }));
+export const parseTodos = (text: string): Todo[] => taskLines(text).map(({ text: t, done }) => ({ text: t, done }));
 
 /** The task an index and text mean now. The note may have changed since the panel read it. */
 function find(tasks: TaskLine[], index: number, t: string) {
-  return tasks[index]?.t === t ? tasks[index] : tasks.find(x => x.t === t);
+  return tasks[index]?.text === t ? tasks[index] : tasks.find(x => x.text === t);
 }
 
 /** Nothing changes if the to-do is gone. */

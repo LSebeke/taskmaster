@@ -57,7 +57,7 @@ describe('state.json', () => {
     task('a', 12);
     task('b', 12);
     o.stateJson = JSON.stringify({ tiers: [[p('a')], [p('b')]] });
-    const { by } = analyze((await boot()).state);
+    const { results: by } = analyze((await boot()).state);
     expect(by[p('a')].end).toBe(D('2026-11-03'));
     expect(by[p('b')].end).toBe(D('2026-11-05'));
   });

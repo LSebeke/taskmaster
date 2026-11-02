@@ -1,7 +1,7 @@
 import { Notice, PluginSettingTab, Setting, type App, type Plugin, type TextComponent } from 'obsidian';
 import { dayOf, iso, isoWeekKey, weekOfIsoKey, weekStart, type Day } from '../engine';
 import { addHoliday, removeHoliday, setStaleDays, setWeekCapacity, setWeekly, type Edit } from '../store/edits';
-import { fmtD, h1 } from './format';
+import { fmtD, fmtH } from './format';
 
 /** What the tab needs of the store. */
 export interface SettingsStore {
@@ -83,7 +83,7 @@ export class TaskmasterSettingTab extends PluginSettingTab {
   }
 
   private overrideRow(week: number, hours: number) {
-    const setting = new Setting(this.containerEl).setName(isoWeekKey(week)).setDesc(`Week of ${fmtD(weekStart(week))}: ${h1(hours)}h`);
+    const setting = new Setting(this.containerEl).setName(isoWeekKey(week)).setDesc(`Week of ${fmtD(weekStart(week))}: ${fmtH(hours)}h`);
     this.removable(setting, 'Remove', setWeekCapacity(week, null));
   }
 

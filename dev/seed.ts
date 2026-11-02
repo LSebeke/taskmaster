@@ -20,15 +20,15 @@ export function seed(): State {
     touched: ago(1),
     notes: ['CAN bus errata'],
     todos: [
-      { t: 'Scope termination at 1 Mbit', done: true },
-      { t: 'Check common-mode choke footprint', done: false },
-      { t: 'Ask vendor about errata 4.2', done: false },
+      { text: 'Scope termination at 1 Mbit', done: true },
+      { text: 'Check common-mode choke footprint', done: false },
+      { text: 'Ask vendor about errata 4.2', done: false },
     ],
   });
   T('gw.hw.emc', 'EMC pre-scan (lab booked)', 'gw.hw', 16, { deps: ['gw.hw.can'], pinS: D('2026-11-16'), pinE: D('2026-11-18'), notes: ['EMC lab booking'] });
   add('gw.fw', 'Firmware', 'gw');
   add('gw.fw.drv', 'Drivers', 'gw.fw');
-  T('gw.fw.drv.spi', 'SPI sensor driver', 'gw.fw.drv', 20, { spent: 22, left: 6, actualStart: ago(14), touched: ago(11), todos: [{ t: 'DMA for burst reads', done: false }] });
+  T('gw.fw.drv.spi', 'SPI sensor driver', 'gw.fw.drv', 20, { spent: 22, left: 6, actualStart: ago(14), touched: ago(11), todos: [{ text: 'DMA for burst reads', done: false }] });
   T('gw.fw.drv.can', 'CAN stack port', 'gw.fw.drv', 30, { deps: ['gw.hw.can'] });
   T('gw.fw.drv.flash', 'Flash log storage', 'gw.fw.drv', 18, { scope: 'should' });
   add('gw.fw.pr', 'Protocol', 'gw.fw');
@@ -58,8 +58,8 @@ export function seed(): State {
     actualStart: ago(6),
     touched: ago(1),
     todos: [
-      { t: 'Idempotent upserts', done: true },
-      { t: 'Retry policy', done: false },
+      { text: 'Idempotent upserts', done: true },
+      { text: 'Retry policy', done: false },
     ],
   });
   T('dp.back', 'Backfill 3 years', 'dp', 16, { deps: ['dp.etl'] });
@@ -95,7 +95,7 @@ export function seed(): State {
   for (const [id, it] of Object.entries(earlier.items)) if (it.left) it.left *= id.startsWith('gw') ? 0.72 : 0.9;
   const a = analyze(earlier);
   for (const id in items) {
-    if (!a.by[id] || items[id].kind === 'ext') continue;
+    if (!a.results[id] || items[id].kind === 'ext') continue;
     st.plan[id] = snapshot(a, earlier, id);
     if (items[id].est != null) st.plan[id].hours = items[id].est;
   }
@@ -145,6 +145,6 @@ export function bigSeed(): State {
     }
   }
   const a = analyze(st);
-  for (const id in a.by) st.plan[id] = snapshot(a, st, id);
+  for (const id in a.results) st.plan[id] = snapshot(a, st, id);
   return st;
 }

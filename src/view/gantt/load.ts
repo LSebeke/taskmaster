@@ -29,13 +29,14 @@ export const LOAD_DAYS = 3000;
 /** Stacked hours per project with the capacity line, in project order. */
 export function buildLoad(st: State, a: Analysis, roots: string[], span: { a: Day; b: Day }): Load {
   const weeks: LoadWeek[] = [];
+  const overDays = new Set(a.over.map(o => weekOf(o.day)));
   let peak = 0;
   for (let w = weekOf(span.a), end = weekOf(span.b); w <= end; w++) {
     const hours = a.weeks[w] ?? {};
     const segs = roots.filter(r => hours[r]).map(root => ({ root, hours: hours[root] }));
     const total = segs.reduce((n, x) => n + x.hours, 0);
     const cap = weekCapacity(w, st.settings);
-    weeks.push({ week: w, start: weekStart(w), cap, override: st.settings.weekCap?.[w] ?? null, segs, total, over: total > cap + OVER_EPS });
+    weeks.push({ week: w, start: weekStart(w), cap, override: st.settings.weekCap?.[w] ?? null, segs, total, over: total > cap + OVER_EPS || overDays.has(w) });
     peak = Math.max(peak, cap, total);
   }
   return { weeks, peak };

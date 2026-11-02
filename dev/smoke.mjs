@@ -316,6 +316,8 @@ async function main() {
   return failed || problems.length ? 1 : 0;
 }
 
+process.once('SIGINT', () => void quit().finally(() => process.exit(130)));
+
 let code = 1;
 try {
   code = await main();

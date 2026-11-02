@@ -56,6 +56,14 @@ const setup = () => {
   return { o, plugin, leaf, open, ready };
 };
 
+describe('manifest', () => {
+  it('covers the newest Obsidian API the plugin uses: an awaitable revealLeaf, 1.7.2', async () => {
+    const { minAppVersion } = (await import('../manifest.json')).default;
+    const parts = minAppVersion.split('.').map(Number);
+    expect(parts[0] * 1e6 + parts[1] * 1e3 + parts[2]).toBeGreaterThanOrEqual(1_007_002);
+  });
+});
+
 describe('plugin load', () => {
   it('onload stays inside its budget', () => {
     const times = Array.from({ length: 30 }, () => {

@@ -9,7 +9,7 @@ export interface TimerStore {
   readonly timer: RunningTimer | null | undefined;
   /** The store's clock. */
   time(): number;
-  stopTimer(): { id: string; hours: number; level: number } | null;
+  stopTimer(): { id: string; hours: number } | null;
   apply(edit: Edit): boolean;
   subscribe(listener: () => void): () => void;
 }

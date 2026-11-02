@@ -20,7 +20,8 @@ export function criticalChains(st: State, S: Schedule, K: KidsMap) {
       seen.add(i);
       (crit[C.T[i].id] ||= new Set()).add(root);
       const t = C.T[i];
-      if (r.idleDay[i] >= 0 && r.idleBy[i] >= 0 && r.idleBy[i] !== i) {
+      // External items take no capacity, so none is ever a capacity link's end.
+      if (r.idleDay[i] >= 0 && r.idleBy[i] >= 0 && r.idleBy[i] !== i && !t.ext && !C.T[r.idleBy[i]].ext) {
         links.push({ a: C.T[r.idleBy[i]].id, b: t.id, kind: 'cap' });
         i = r.idleBy[i];
         continue;

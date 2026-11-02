@@ -48,15 +48,15 @@ export function buildRows(st: State, a: Analysis, ui: UiState): Row[] {
     for (const id of ids ?? []) {
       if (ui.hidden.has(id)) continue;
       out.push({ id, depth });
-      if (a.K[id] && !ui.collapsed.has(id)) walk(a.K[id], depth + 1);
+      if (a.kids[id] && !ui.collapsed.has(id)) walk(a.kids[id], depth + 1);
     }
   };
-  walk((a.K[ui.focus ?? ''] ?? []).filter(i => !isExt(i)), 0);
+  walk((a.kids[ui.focus ?? ''] ?? []).filter(i => !isExt(i)), 0);
 
   if (ui.show.ext) {
-    let ext = (a.K[''] ?? []).filter(isExt).filter(i => !ui.hidden.has(i));
+    let ext = (a.kids[''] ?? []).filter(isExt).filter(i => !ui.hidden.has(i));
     if (ui.focus) {
-      const used = new Set(leavesOf(st, ui.focus, a.K).flatMap(l => effDeps(st, l, a.K)));
+      const used = new Set(leavesOf(st, ui.focus, a.kids).flatMap(l => effDeps(st, l, a.kids)));
       ext = ext.filter(i => used.has(i));
     }
     if (ext.length) {
@@ -84,9 +84,9 @@ export function hiddenList(st: State, hidden: Set<string>): { id: string; title:
 }
 
 export function vsPlan(st: State, a: Analysis, id: string): Marker {
-  const b = a.by[id];
+  const b = a.results[id];
   if (st.items[id].kind === 'ext') return { text: b?.done ? 'past' : 'ext', tone: 'plain' };
-  if (b.draft || (a.K[id] && b.end == null)) return { text: '○ no hrs', tone: 'muted', title: 'Add hours or children to schedule it' };
+  if (b.draft || (a.kids[id] && b.end == null)) return { text: '○ no hrs', tone: 'muted', title: 'Add hours or children to schedule it' };
   if (!st.plan[id]) return { text: '● new', tone: 'muted', title: 'Not in the plan yet' };
   if (b.overDeadline) return { text: `▲ ${b.overDeadline}d`, tone: 'crit', title: 'Past deadline' };
   if (b.shift! > 0) return { text: `▲ +${b.shift}d`, tone: 'crit', title: 'Behind plan' };
@@ -97,8 +97,8 @@ export function vsPlan(st: State, a: Analysis, id: string): Marker {
 export function rowView(st: State, a: Analysis, row: Row, conflicts: Set<string | null>, ui: UiState): RowView {
   const { id, depth } = row;
   const it = st.items[id];
-  const b = a.by[id];
-  const group = !!a.K[id];
+  const b = a.results[id];
+  const group = !!a.kids[id];
   return {
     id,
     depth,

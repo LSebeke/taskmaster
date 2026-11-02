@@ -127,7 +127,7 @@ export function Legend({ st, a, ui }: { st: State; a: Analysis; ui: UiState }) {
   const { show } = ui;
   const { ghost } = layers(ui);
   const swatch = (background: string, width: number, height: number, borderRadius = 2) => <i style={{ background, width: `${width}px`, height: `${height}px`, borderRadius: `${borderRadius}px` }} />;
-  const hasExt = (a.K[''] ?? []).some(i => st.items[i].kind === 'ext');
+  const hasExt = (a.kids[''] ?? []).some(i => st.items[i].kind === 'ext');
   return (
     <>
       <span>

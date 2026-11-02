@@ -25,7 +25,7 @@ const boot = async (tiers: string[][] = [[A, B], [C]]) => {
 };
 const saved = () => JSON.parse(o.files.get(STATE_PATH)!).tiers;
 const forecast = () => {
-  const { by } = analyze(store.state);
+  const { results: by } = analyze(store.state);
   return Object.fromEntries(Object.entries(by).map(([k, v]) => [k, [v.start, v.end, v.burn]]));
 };
 

@@ -98,7 +98,7 @@ describe('derived fields', () => {
     o.add('Projects/a.md', { 'tm-type': 'item' });
     const { state } = await boot();
     expect(state.items['Projects/a.md']).toMatchObject({ left: 0, spent: 0, scope: 'must' });
-    expect(analyze(state).by['Projects/a.md'].draft).toBe(true);
+    expect(analyze(state).results['Projects/a.md'].draft).toBe(true);
   });
 
   it('dates a finished task from tm-left-updated', async () => {
@@ -110,7 +110,7 @@ describe('derived fields', () => {
     o.add('Projects/a.md', { 'tm-type': 'item', 'tm-left': 0, 'tm-log': ['2026-10-19 2', '2026-10-21 1'] });
     const { state } = await boot();
     expect(state.items['Projects/a.md'].doneOn).toBe(D('2026-10-21'));
-    expect(analyze(state).by['Projects/a.md']).toMatchObject({ done: true, end: D('2026-10-21') });
+    expect(analyze(state).results['Projects/a.md']).toMatchObject({ done: true, end: D('2026-10-21') });
   });
 
   it('does not date an unfinished task', async () => {
@@ -145,7 +145,7 @@ describe('derived fields', () => {
     o.add('Projects/a.md', { 'tm-type': 'item', 'tm-left': 12, 'tm-deps': ['[[x]]'] });
     const { state } = await boot();
     expect(state.items['Projects/_external/x.md']).toMatchObject({ kind: 'ext', parent: null, deps: [] });
-    expect(analyze(state).by['Projects/a.md'].start).toBe(D('2026-11-05'));
+    expect(analyze(state).results['Projects/a.md'].start).toBe(D('2026-11-05'));
   });
 });
 
@@ -167,9 +167,9 @@ describe('to-dos', () => {
     o.add('Projects/a.md', { 'tm-type': 'item' }, listItems, body);
     const store = await boot();
     expect(await store.readTodos('Projects/a.md')).toEqual([
-      { t: 'Check choke', done: false },
-      { t: 'Scope it', done: true },
-      { t: 'Half way', done: true },
+      { text: 'Check choke', done: false },
+      { text: 'Scope it', done: true },
+      { text: 'Half way', done: true },
     ]);
     expect(await store.readTodos('Projects/gone.md')).toEqual([]);
   });
@@ -206,10 +206,10 @@ describe('malformed frontmatter', () => {
     expect(store.warnings.filter(w => w.field === 'tm-log')).toHaveLength(3);
   });
 
-  it('falls back to a plain item on an unknown tm-type', async () => {
+  it('leaves out a note with an unknown tm-type, and says so', async () => {
     o.add('Projects/a.md', { 'tm-type': 'epic' });
     const store = await boot();
-    expect(store.state.items['Projects/a.md'].kind).toBe('item');
+    expect(store.state.items['Projects/a.md']).toBeUndefined();
     expect(store.warnings).toContainEqual(expect.objectContaining({ field: 'tm-type' }));
   });
 
@@ -309,6 +309,6 @@ describe('broken links and shapes', () => {
     expect(store.state.items['Projects/a.md'].deps).toEqual(['Projects/b.md']);
     expect(store.state.items['Projects/b.md'].deps).toEqual([]);
     expect(store.warnings).toContainEqual(expect.objectContaining({ path: 'Projects/b.md', field: 'tm-deps' }));
-    expect(analyze(store.state).by['Projects/a.md'].end).not.toBeNull();
+    expect(analyze(store.state).results['Projects/a.md'].end).not.toBeNull();
   });
 });

@@ -131,6 +131,8 @@ The simulation starts today. Past work is what was logged. Hours are never alloc
 **Hours:**
 
 - Logging moves hours from left to spent. Total hours stay the same.
+- Logging more than is left is real work, so it is allowed: left floors at 0 and total hours rise.
+- A later edit to a finished task's log leaves its done date alone.
 - Logging never moves a bar. On a task that has not started, start stays where the schedule puts it.
 - Actual start (`tm-started`) is set the first time work flows into the task on or after its forecast start, or when today reaches that start with hours logged.
 - Editing a log entry adjusts hours left by the difference, so total stays the same. Deleting an entry is the same as editing it to 0: hours return to left.

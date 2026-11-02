@@ -121,5 +121,5 @@ export function analyze(st: State): Analysis {
       if (h > p.hours + 0.5) b.planGapH = h - p.hours;
     }
   }
-  return { by, conflicts, links, weeks: r.weeks, todayH: r.todayH, K, rel: S.rel };
+  return { results: by, conflicts, links, weeks: r.weeks, todayH: r.todayH, kids: K, releaseDay: S.rel, over: r.over };
 }

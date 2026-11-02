@@ -45,7 +45,7 @@ export function vaultFrom(st: State): { vault: FakeObsidian; pathOf: (id: string
   for (const [id, it] of Object.entries(st.items)) {
     let body = '';
     const listItems = (it.todos ?? []).map(t => {
-      const line = `- [${t.done ? 'x' : ' '}] ${t.t}\n`;
+      const line = `- [${t.done ? 'x' : ' '}] ${t.text}\n`;
       const start = body.length;
       body += line;
       return { task: t.done ? 'x' : ' ', position: { start: { offset: start }, end: { offset: start + line.length - 1 } } };

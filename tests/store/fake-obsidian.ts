@@ -161,6 +161,10 @@ export class FakeObsidian {
           this.files.delete(from);
         },
         remove: async (path: string) => void this.files.delete(path),
+        copy: async (from: string, to: string) => {
+          if (!this.files.has(from)) throw new Error(`No file ${from}`);
+          this.files.set(to, this.files.get(from)!);
+        },
       },
     },
     fileManager: {

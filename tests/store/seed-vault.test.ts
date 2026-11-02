@@ -13,8 +13,8 @@ describe('harness vault', () => {
     const direct = analyze(st);
     const stored = analyze(store.state);
     for (const id in st.items) {
-      const { start, end, spent, left } = direct.by[id];
-      expect(stored.by[pathOf(id)], id).toMatchObject({ start, end, spent, left });
+      const { start, end, spent, left } = direct.results[id];
+      expect(stored.results[pathOf(id)], id).toMatchObject({ start, end, spent, left });
     }
     expect(stored.conflicts.length).toBe(direct.conflicts.length);
     expect(store.warnings).toEqual([]);

@@ -4,12 +4,14 @@ import {
   analyze,
   depError,
   editLog,
+  isDraft,
   iso,
   kids,
-  logHours as engineLog,
+  addLog,
   moveError,
   moveItem,
   moveToTier,
+  release,
   removeItem,
   removeTier,
   setLeft,
@@ -32,6 +34,12 @@ export type Edit = (st: State) => string | void;
 
 const num = (n: number) => String(Math.round(n * 100) / 100);
 
+/** Hours are logged on tasks only, so not on a parent or a draft. */
+export function takesHours(st: State, id: string): boolean {
+  const K = kids(st);
+  return st.items[id]?.kind === 'item' && !K[id] && !isDraft(st, id, K);
+}
+
 /** The first hours a draft gets are its original estimate. Later edits leave that alone. */
 function firstEstimate(it: Item, hours: number) {
   if (hours > 0 && !(it.est! > 0) && !(it.spent! > 0)) it.est = hours;
@@ -47,15 +55,13 @@ export const setTotal =
     return `${it.title}: ${num(hours)}h total`;
   };
 
-/** `level`: where a task left its level only because a timer ran past its hours, so it goes back there. */
 export const setHoursLeft =
-  (id: string, hours: number, level?: number | null): Edit =>
+  (id: string, hours: number): Edit =>
   st => {
     const it = st.items[id];
     if (!it) return;
     firstEstimate(it, hours);
     setLeft(it, hours, st.today);
-    if (level != null && it.left! > 0 && !st.tiers.flat().includes(id)) st.tiers[level]?.push(id);
     return `${it.title}: ${num(hours)}h left`;
   };
 
@@ -63,8 +69,8 @@ export const logHours =
   (id: string, day: Day, hours: number): Edit =>
   st => {
     const it = st.items[id];
-    if (!it || !(hours > 0)) return;
-    engineLog(it, day, hours, st.today);
+    if (!it || !(hours > 0) || !takesHours(st, id)) return;
+    addLog(it, day, hours, st.today);
     return `Logged ${num(hours)}h on ${it.title}`;
   };
 
@@ -236,8 +242,17 @@ export const stopTimer =
     const it = st.items[t.id];
     if (!it) return 'Timer stopped';
     if (!hours) return `Timer stopped on ${it.title}, nothing to log`;
-    engineLog(it, st.today, hours, st.today);
+    addLog(it, st.today, hours, st.today);
     return `Logged ${num(hours)}h on ${it.title}`;
+  };
+
+/** A parent's last child went without the plugin doing it. The rest of `moveEdit` and `removeEdit`'s work. */
+export const releaseParent =
+  (id: string): Edit =>
+  st => {
+    if (!st.items[id] || st.items[id].budget == null || kids(st)[id]) return;
+    release(st, id);
+    return `${st.items[id].title}: budget became hours`;
   };
 
 /** Notes project in path order. This keeps the order siblings have now, which a project's colour follows. */
@@ -342,7 +357,7 @@ export const awaitsStart = (it: Item): boolean => it.kind === 'item' && it.spent
 export function recordDates(st: State, a: Analysis = analyze(st)): void {
   const K = kids(st);
   for (const [id, it] of Object.entries(st.items)) {
-    const b = a.by[id];
+    const b = a.results[id];
     if (!b) continue;
     if (awaitsStart(it) && !K[id] && b.start != null && b.start <= st.today) {
       const first = it.log?.find(e => e.d >= b.start!)?.d ?? b.start;

@@ -14,12 +14,12 @@ export interface PlanTarget {
 export function planTarget(st: State, a: Analysis, ui: UiState): PlanTarget {
   const { sel, focus } = ui;
   if (sel && st.items[sel] && st.items[sel].kind !== 'ext') return { rows: [sel], name: st.items[sel].title, above: st.items[sel].parent };
-  const rows = (a.K[focus ?? ''] ?? []).filter(i => st.items[i].kind !== 'ext');
+  const rows = (a.kids[focus ?? ''] ?? []).filter(i => st.items[i].kind !== 'ext');
   // Focused, the rows change and the focused item does not. The name must not suggest otherwise.
   return { rows, name: focus ? `under ${st.items[focus].title}` : 'all projects', above: focus };
 }
 
-const plannable = (a: Analysis, id: string) => a.by[id]?.end != null;
+const plannable = (a: Analysis, id: string) => a.results[id]?.end != null;
 
 export function openPlan(ui: UiState, st: State, a: Analysis): UiState {
   const { rows, name, above } = planTarget(st, a, ui);
@@ -51,10 +51,10 @@ export const planRows = (st: State, a: Analysis, dlg: PlanDialog): PlanRow[] =>
     id,
     title: st.items[id].title,
     oldEnd: st.plan[id]?.end,
-    newEnd: a.by[id]?.end ?? null,
+    newEnd: a.results[id]?.end ?? null,
     checked: dlg.ids.has(id),
     plannable: plannable(a, id),
-    group: !!a.K[id],
+    group: !!a.kids[id],
   }));
 
 export interface HistoryRow {

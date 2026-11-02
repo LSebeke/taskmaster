@@ -47,7 +47,7 @@ export class Signals {
   estimate(st: State, a: Analysis, id: string, frozen = false): Estimate | null {
     const root = rootOf(st, id);
     return this.run(`estimate ${root}`, st, a, frozen, () => {
-      const acc = accuracy(st, root, a.K);
+      const acc = accuracy(st, root, a.kids);
       return acc && { ...acc, finish: adjusted(st, root, acc.ratio) };
     });
   }

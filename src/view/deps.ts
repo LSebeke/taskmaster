@@ -1,5 +1,8 @@
 import { depBlocker, type KidsMap, type State } from '../engine';
 
+/** Depth in an option list, where text is all a select shows. */
+export const INDENT = '   ';
+
 export interface DepGroup {
   path: string;
   items: { id: string; title: string }[];

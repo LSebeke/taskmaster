@@ -5,15 +5,16 @@ import { linkNote, setWeekCapacity, setWeekly, updatePlan, type Edit } from '../
 import { describeChanges } from './changes';
 import { Legend, StatusBar, TopBar, TreeFoot, TreeHead, WeekEdit } from './chrome';
 import { tooltipLines } from './explain';
-import { h1 } from './format';
+import { fmtH } from './format';
 import { drawGantt } from './gantt/draw';
 import { dotAt, forecastBar } from './gantt/drag';
 import { Gestures, type GestureHost, type Hot, type Spot } from './gantt/gestures';
 import { hitTest } from './gantt/hit';
-import { buildLoad, LOAD_DAYS, loadWeekAt, type Load, type LoadWeek } from './gantt/load';
+import { buildLoad, LOAD_DAYS, type Load, type LoadWeek } from './gantt/load';
 import { readPalette, stylesApplied, type Palette } from './gantt/palette';
 import { chartSpan, clampPpd, makeScale, zoomAround, type TimeScale } from './gantt/scale';
 import { buildScene, projectRoots, type Bar, type Scene } from './gantt/scene';
+import { fitCanvas, spotAt, weekAt, type ChartBox } from './gantt/surface';
 import { Guard } from './guard';
 import { Hierarchy } from './hierarchy';
 import type { NotePick } from './note-picker';
@@ -23,7 +24,7 @@ import { Rail } from './rail/rail';
 import { RowDrag, type Drop, type RowHit } from './row-drag';
 import { Signals } from './signals';
 import { buildRows, HEAD, LOADH, ROW, rowView, type Row } from './rows';
-import { cleanForSharing, defaultUi, defaultView, escape, goUp, isInside, openForm, pruneUi, rekeyUi, setFocus, setLayer, setShow, toggleCollapsed, toggleHidden, type UiState } from './ui-state';
+import { afterAdd, cleanForSharing, defaultUi, defaultView, escape, goUp, openForm, pruneUi, rekeyUi, setFocus, setLayer, setShow, toggleCollapsed, toggleHidden, type UiState } from './ui-state';
 
 /** The slice of TaskmasterStore the view reads. */
 export interface ViewStore {
@@ -45,7 +46,7 @@ export interface ViewStore {
   readonly timer: RunningTimer | null | undefined;
   time(): number;
   startTimer(id: string): boolean;
-  stopTimer(): { id: string; hours: number; level: number } | null;
+  stopTimer(): { id: string; hours: number } | null;
 }
 
 export interface ViewHost {
@@ -246,8 +247,8 @@ export class GanttApp {
     const box = this.scroller.getBoundingClientRect();
     const left = box.left - this.scroller.scrollLeft;
     const top = box.top + HEAD + i * ROW - this.scroller.scrollTop;
-    const x0 = left + this.scale.x(bar.d0);
-    const x1 = left + this.scale.x(bar.d1);
+    const x0 = left + this.scale.x(bar.startDay);
+    const x1 = left + this.scale.x(bar.endDay);
     const dot = dotAt(bar, this.scale);
     return { x: (x0 + x1) / 2, y: top + bar.top + bar.h / 2, x0, x1, dot: { x: left + dot.x, y: top + dot.y } };
   }
@@ -281,27 +282,14 @@ export class GanttApp {
   }
 
   private openForm(where: Parameters<typeof openForm>[3]) {
-    this.setUi(openForm(this.ui, this.store.state, this.a.K, where));
+    this.setUi(openForm(this.ui, this.store.state, this.a.kids, where));
   }
 
   private async submitForm(n: NewItem): Promise<string | null> {
     const { id, error } = await this.store.create(n);
     if (error || !id) return error ?? 'Could not add it.';
-    const { ui } = this;
-    const st = this.store.state;
-    const it = st.items[id];
-    if (!ui.form || !it) return null;
-    const project = n.kind !== 'ext' && !n.parent;
-    const external = n.kind === 'ext';
-    const collapsed = new Set(ui.collapsed);
-    if (it.parent) collapsed.delete(it.parent);
-    this.setUi({
-      ...ui,
-      collapsed,
-      // New work outside the focus would be out of sight.
-      focus: ui.focus && !external && !isInside(st, id, ui.focus) ? null : ui.focus,
-      form: { ...ui.form, parent: project ? id : ui.form.parent, last: project || external ? null : id, added: [...ui.form.added, it.title] },
-    });
+    const next = afterAdd(this.ui, this.store.state, n, id);
+    if (next !== this.ui) this.setUi(next);
     return null;
   }
 
@@ -339,7 +327,7 @@ export class GanttApp {
         return app.store.state;
       },
       get kids() {
-        return app.a.K;
+        return app.a.kids;
       },
       rowAt: (y: number) => this.rowAt(y),
       consequence: (label: string, edit: Edit) => this.consequence(label, edit),
@@ -371,7 +359,7 @@ export class GanttApp {
     // Notes changing under a drag wait for the drop: previews always start from the store.
     if (this.shown) return;
     const before = this.a;
-    const had = Object.keys(before.by).length > 0;
+    const had = Object.keys(before.results).length > 0;
     this.a = this.compute();
     if (had) this.message = describeChanges(this.st, before, this.a, label);
     this.ui = pruneUi(this.ui, this.st);
@@ -724,42 +712,32 @@ export class GanttApp {
     });
   }
 
+  private get box(): ChartBox {
+    return { chart: this.chart, scroller: this.scroller, loadHeight: this.loadHeight };
+  }
+
   private paint() {
-    const { canvas, scroller, chart } = this;
-    const width = chart.clientWidth;
-    const height = chart.clientHeight;
+    const { scroller } = this;
     this.hierarchy.sync(scroller.scrollTop, this.tree.clientHeight);
-    if (!width || !height) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.round(width * dpr);
-    const h = Math.round(height * dpr);
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
-    }
-    const c = canvas.getContext('2d')!;
-    c.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawGantt(c, {
+    const frame = fitCanvas(this.canvas, this.chart);
+    if (!frame) return;
+    drawGantt(frame.c, {
       st: this.st,
       ui: this.ui,
       scene: this.scene,
       load: this.load,
       scale: this.scale,
       pal: this.pal,
-      width,
-      height,
+      width: frame.width,
+      height: frame.height,
       scrollLeft: scroller.scrollLeft,
       scrollTop: scroller.scrollTop,
       hot: this.hot,
     });
   }
 
-  /** Chart position among the rows, or null over the axis or the load strip. */
   private spotAt(e: MouseEvent): Spot {
-    const box = this.scroller.getBoundingClientRect();
-    const y = e.clientY - box.top;
-    if (y < HEAD || y > this.chart.clientHeight - this.loadHeight) return null;
-    return { x: e.clientX - box.left + this.scroller.scrollLeft, y: y - HEAD + this.scroller.scrollTop };
+    return spotAt(this.box, e);
   }
 
   private hitAt(e: MouseEvent): Bar | null {
@@ -767,12 +745,8 @@ export class GanttApp {
     return p ? hitTest(this.scene, this.scale, p.x, p.y) : null;
   }
 
-  /** The load strip week under the pointer. */
   private weekAt(e: MouseEvent): LoadWeek | null {
-    if (!this.ui.show.load) return null;
-    const box = this.scroller.getBoundingClientRect();
-    if (e.clientY - box.top <= this.chart.clientHeight - this.loadHeight) return null;
-    return loadWeekAt(this.load, e.clientX - box.left + this.scroller.scrollLeft, this.scale);
+    return this.ui.show.load ? weekAt(this.box, this.load, this.scale, e) : null;
   }
 
   private hideTip() {
@@ -812,8 +786,8 @@ export class GanttApp {
     if (week) {
       this.gestures.hover(null, null);
       this.scroller.style.cursor = 'pointer';
-      const hours = week.override != null ? `${h1(week.override)}h override` : `${h1(week.cap)}h`;
-      return this.tipLines(`CW${isoWeekKey(week.week).slice(-2)}`, [`Capacity ${hours}, ${h1(week.total)}h booked`, 'Click to edit'], e);
+      const hours = week.override != null ? `${fmtH(week.override)}h override` : `${fmtH(week.cap)}h`;
+      return this.tipLines(`CW${isoWeekKey(week.week).slice(-2)}`, [`Capacity ${hours}, ${fmtH(week.total)}h booked`, 'Click to edit'], e);
     }
     const bar = this.hitAt(e);
     this.scroller.style.cursor = this.gestures.hover(e, bar);

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { analyze, type State } from '../../src/engine';
 import { describeChanges } from '../../src/view/changes';
 import { countNotInPlan, planGapText, statusOf, upcomingExternals, why } from '../../src/view/explain';
-import { fmtD, h1 } from '../../src/view/format';
+import { fmtD, fmtH } from '../../src/view/format';
 import { D, external, state, task } from '../engine/helpers';
 
 const reason = (st: State, id: string) => why(st, analyze(st), id);
@@ -150,8 +150,8 @@ describe('format', () => {
   it('dates and hours', () => {
     expect(fmtD(D('2026-11-02'))).toBe('2 Nov');
     expect(fmtD(null)).toBe('—');
-    expect(h1(2.25)).toBe('2.3');
-    expect(h1(4)).toBe('4');
+    expect(fmtH(2.25)).toBe('2.3');
+    expect(fmtH(4)).toBe('4');
   });
 });
 
@@ -185,5 +185,17 @@ describe('items not in the plan', () => {
     const st = tree();
     st.plan.a = st.plan.p = planned;
     expect(countNotInPlan(st, analyze(st), 'p')).toBe(1);
+  });
+});
+
+describe('a pinned start blocked by capacity', () => {
+  it('says so, and names who takes the hours', () => {
+    const st = state({ a: task('a', 120), b: task('b', 6, { pinS: D('2026-11-02') }) }, [['a'], ['b']]);
+    expect(reason(st, 'b')).toBe('Start pinned, but blocked by capacity: a takes the hours first.');
+  });
+
+  it('with capacity to spare, the pin is the reason', () => {
+    const st = state({ b: task('b', 6, { pinS: D('2026-11-02') }) }, [['b']]);
+    expect(reason(st, 'b')).toBe('Start pinned. End follows from hours and what runs in parallel.');
   });
 });

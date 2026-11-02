@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { dayOf as D } from '../../src/engine';
-import { setHoursLeft, TaskmasterStore } from '../../src/store';
+import { TaskmasterStore } from '../../src/store';
 import { FakeObsidian } from './fake-obsidian';
 
 const p = (name: string) => `Projects/${name}.md`;
@@ -82,7 +82,7 @@ describe('timer', () => {
     await boot();
     store.startTimer(p('a'));
     now = START + 1.5 * HOUR;
-    expect(store.stopTimer()).toEqual({ id: p('a'), hours: 1.5, level: 0 });
+    expect(store.stopTimer()).toEqual({ id: p('a'), hours: 1.5 });
     expect(store.timer).toBeNull();
     expect(store.state.items[p('a')]).toMatchObject({ spent: 1.5, left: 10.5 });
     await settle();
@@ -104,7 +104,7 @@ describe('timer', () => {
     await boot();
     store.startTimer(p('a'));
     now = START + 10_000;
-    expect(store.stopTimer()).toEqual({ id: p('a'), hours: 0, level: 0 });
+    expect(store.stopTimer()).toEqual({ id: p('a'), hours: 0 });
     expect(store.timer).toBeNull();
     expect(store.state.items[p('a')].spent).toBe(0);
   });
@@ -162,7 +162,7 @@ describe('timer', () => {
     const { id: child } = await store.create({ kind: 'item', title: 'c', parent: p('a'), hours: 3 });
     const parent = store.state.items[child!].parent!;
     now = START + HOUR;
-    expect(store.stopTimer()).toEqual({ id: parent, hours: 0, level: -1 });
+    expect(store.stopTimer()).toEqual({ id: parent, hours: 0 });
     expect(store.timer).toBeNull();
     expect(store.state.items[parent].log ?? []).toEqual([]);
   });
@@ -175,16 +175,4 @@ describe('timer', () => {
     expect(heard).toEqual(['Timer started on a']);
   });
 
-  it('running past the hours left, then saying more is left, keeps the task in its level', async () => {
-    o.add(p('short'), task(1));
-    o.stateJson = JSON.stringify({ tiers: [[p('short')], [p('a'), p('b')]] });
-    await boot();
-    store.startTimer(p('short'));
-    now = START + 2 * HOUR;
-    const stopped = store.stopTimer()!;
-    expect(store.state.items[p('short')].left).toBe(0);
-    expect(store.state.tiers.flat()).not.toContain(p('short'));
-    store.apply(setHoursLeft(p('short'), 3, stopped.level));
-    expect(store.state.tiers).toEqual([[p('short')], [p('a'), p('b')]]);
-  });
 });

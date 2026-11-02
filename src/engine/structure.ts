@@ -31,14 +31,21 @@ export function validateNew(n: NewItem): string | null {
   return null;
 }
 
+/** Why nothing can go inside `P`, for the kinds that hold nothing. */
+function childlessKind(P: Item | null | undefined): string | null {
+  if (P?.kind === 'ms') return 'Milestones cannot have children.';
+  if (P?.kind === 'ext') return 'External items cannot have children.';
+  return null;
+}
+
 /** Why this item cannot be added, or null. */
 export function newItemError(st: State, n: NewItem): string | null {
   const field = validateNew(n);
   if (field || n.kind === 'ext') return field;
   const P = n.parent ? st.items[n.parent] : null;
   if (n.parent && !P) return 'That parent is gone.';
-  if (P?.kind === 'ms') return 'Milestones cannot have children.';
-  if (P?.kind === 'ext') return 'External items cannot have children.';
+  const barred = childlessKind(P);
+  if (barred) return barred;
   const trial = structuredClone(st);
   addItem(trial, n);
   return hasCycle(trial) ? 'That would create a dependency loop.' : null;
@@ -59,7 +66,7 @@ function adopt(st: State, p: string | null | undefined): number {
 }
 
 /** Last child gone: the budget becomes hours again. */
-function release(st: State, p: string | null | undefined): void {
+export function release(st: State, p: string | null | undefined): void {
   if (!p || !st.items[p] || kids(st)[p]) return;
   const P = st.items[p];
   if (P.budget != null) {
@@ -113,8 +120,8 @@ export function placeError(st: State, id: string, parent: string | null): string
   const P = parent ? st.items[parent] : null;
   if (it.kind === 'ext') return 'External items stay in their own section.';
   if (it.kind === 'ms' && !parent) return 'A milestone needs a parent.';
-  if (P?.kind === 'ms') return 'Milestones cannot have children.';
-  if (P?.kind === 'ext') return 'External items cannot have children.';
+  const barred = childlessKind(P);
+  if (barred) return barred;
   for (let i = parent; i; i = st.items[i]?.parent ?? null) if (i === id) return 'An item cannot move inside itself.';
   return null;
 }

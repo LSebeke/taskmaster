@@ -10,7 +10,7 @@ export const fmtD = (d: Day | null | undefined): string => {
 };
 
 /** Hours to one decimal, no trailing zero. */
-export const h1 = (n: number): string => String(Math.round(n * 10) / 10);
+export const fmtH = (n: number): string => String(Math.round(n * 10) / 10);
 
 /** Note path to its name. */
 export const noteName = (path: string): string => path.split('/').pop()!.replace(/\.md$/, '');

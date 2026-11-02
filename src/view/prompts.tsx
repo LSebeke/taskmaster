@@ -3,7 +3,7 @@ import { render, type ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { dayOf, iso, type Day } from '../engine';
 import { logHours, setHoursLeft, type Edit } from '../store/edits';
-import { h1 } from './format';
+import { fmtH } from './format';
 
 /** What the prompts need of the store. */
 export interface PromptStore {
@@ -47,7 +47,7 @@ function Prompt({ children, action, onSubmit }: { children: ComponentChildren; a
 }
 
 function LeftForm({ intro, left, onDone }: { intro: string; left: number; onDone(left: number | null): void }) {
-  const [value, setValue] = useState(h1(left));
+  const [value, setValue] = useState(fmtH(left));
   return (
     <Prompt action="Save" onSubmit={() => onDone(Number(value) >= 0 && value !== '' ? Number(value) : null)}>
       <p>{intro}</p>
@@ -66,21 +66,21 @@ export class HoursLeftModal extends FormModal {
   constructor(
     app: App,
     private store: PromptStore,
-    private stopped: { id: string; hours: number; level: number },
+    private stopped: { id: string; hours: number },
   ) {
     super(app);
     this.title = `Hours left on ${store.state.items[stopped.id].title}`;
   }
 
   protected form(close: () => void) {
-    const { id, hours, level } = this.stopped;
+    const { id, hours } = this.stopped;
     const it = this.store.state.items[id];
     return (
       <LeftForm
-        intro={`Logged ${h1(hours)}h on ${it.title}.`}
+        intro={`Logged ${fmtH(hours)}h on ${it.title}.`}
         left={it.left ?? 0}
         onDone={left => {
-          if (left != null) this.store.apply(setHoursLeft(id, left, level));
+          if (left != null) this.store.apply(setHoursLeft(id, left));
           close();
         }}
       />
@@ -88,7 +88,7 @@ export class HoursLeftModal extends FormModal {
   }
 }
 
-function LogForm({ today, onDone }: { today: Day; onDone(hours: number, day: Day): void }) {
+function LogPrompt({ today, onDone }: { today: Day; onDone(hours: number, day: Day): void }) {
   const [hours, setHours] = useState('1');
   const [day, setDay] = useState(iso(today));
   return (
@@ -119,7 +119,7 @@ export class LogHoursModal extends FormModal {
 
   protected form(close: () => void) {
     return (
-      <LogForm
+      <LogPrompt
         today={this.store.state.today}
         onDone={(hours, day) => {
           this.store.apply(logHours(this.id, day, hours));

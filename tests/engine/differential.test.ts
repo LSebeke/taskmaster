@@ -30,16 +30,22 @@ const comparable = (st: State) => ({
   tiers: st.tiers.map(t => t.filter(id => st.items[id]?.left! > 0)),
 });
 
+/** `over` is the port's: the load strip reads it. The rest is the prototype's result. */
+const portAnalysis = (st: State) => {
+  const { over: _, results: by, kids: K, releaseDay: rel, ...rest } = Port.analyze(st);
+  return plain({ ...rest, by, K, rel });
+};
+
 function expectSameResults(a: State, b: State) {
   expect(plain(comparable(b))).toEqual(plain(comparable(a)));
-  expect(plain(Port.analyze(b))).toEqual(plain(E.analyze(a)));
+  expect(portAnalysis(b)).toEqual(plain(E.analyze(a)));
 }
 
 describe('differential: prototype engine vs. port on seed data', () => {
   it('analyze', () => {
     const st = proto.seed();
     expect(Object.keys(st.items).length).toBeGreaterThan(30);
-    expect(plain(Port.analyze(seedState()))).toEqual(plain(E.analyze(st)));
+    expect(portAnalysis(seedState())).toEqual(plain(E.analyze(st)));
   });
 
   it('MVP, accuracy, adjusted finish', () => {
@@ -80,7 +86,7 @@ describe('differential: prototype engine vs. port on seed data', () => {
 
   it('stress data, 1000 tasks', () => {
     const st = proto.stressData();
-    expect(plain(Port.analyze(plain(st)))).toEqual(plain(E.analyze(st)));
+    expect(portAnalysis(plain(st))).toEqual(plain(E.analyze(st)));
   });
 
   it.each([
@@ -92,7 +98,7 @@ describe('differential: prototype engine vs. port on seed data', () => {
       // The prototype never calls a task stale without this date. The port counts from the start.
       for (const it of Object.values<any>(st.items)) if (it.actualStart != null) it.touched ??= it.actualStart;
       const a = E.analyze(st);
-      expect(plain(Port.analyze(plain(st)))).toEqual(plain(a));
+      expect(portAnalysis(plain(st))).toEqual(plain(a));
       E.advanceDay(st, a, burnsOnly);
     }
   });
@@ -123,9 +129,9 @@ describe('differential: the same edits on both sides', () => {
   });
 
   it('hours: log, edit, total', () => {
-    both((X, s) => X.logHours(s.items['dp.etl'], s.today, 3.5, s.today));
-    both((X, s) => X.logHours(s.items['dp.etl'], s.today, 1, s.today));
-    both((X, s) => X.logHours(s.items['gw.fw.drv.can'], s.today, 2, s.today));
+    both((X, s) => (X.addLog ?? X.logHours)(s.items['dp.etl'], s.today, 3.5, s.today));
+    both((X, s) => (X.addLog ?? X.logHours)(s.items['dp.etl'], s.today, 1, s.today));
+    both((X, s) => (X.addLog ?? X.logHours)(s.items['gw.fw.drv.can'], s.today, 2, s.today));
     both((X, s) => X.editLog(s.items['gw.fw.drv.can'], 0, 1, s.today));
     both((X, s) => X.editLog(s.items['gw.fw.drv.can'], 0, 0, s.today));
     both((X, s) => X.setTotal(s.items['dp.back'], 40, s.today));
@@ -176,10 +182,10 @@ describe('differential: the same edits on both sides', () => {
 
   it('Update plan at every reach', () => {
     both((_, s) => (s.items['gw.fw.pr.ota'].left = 80));
-    both((X, s) => X.updatePlan(s, X.analyze(s), X.analyze(s).K['gw.fw'], true));
+    both((X, s) => X.updatePlan(s, X.analyze(s), (X.analyze(s).kids ?? X.analyze(s).K)['gw.fw'], true));
     both((_, s) => (s.items['rig.sq.ui'].left = 60));
     both((X, s) => X.updatePlan(s, X.analyze(s), ['rig.sq'], false));
     both((X, s) => X.updatePlan(s, X.analyze(s), ['rig'], true));
-    both((X, s) => X.updatePlan(s, X.analyze(s), X.analyze(s).K[''], true));
+    both((X, s) => X.updatePlan(s, X.analyze(s), (X.analyze(s).kids ?? X.analyze(s).K)[''], true));
   });
 });

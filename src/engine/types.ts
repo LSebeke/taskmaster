@@ -11,7 +11,7 @@ export interface LogEntry {
 }
 
 export interface Todo {
-  t: string;
+  text: string;
   done: boolean;
 }
 
@@ -135,11 +135,15 @@ export interface ItemResult {
 export type WeekLoad = Record<number, Record<string, number>>;
 
 export interface Analysis {
-  by: Record<string, ItemResult>;
+  /** Per item. */
+  results: Record<string, ItemResult>;
   conflicts: Conflict[];
   links: ChainLink[];
   weeks: WeekLoad;
   todayH: Record<string, number>;
-  K: KidsMap;
-  rel: Record<string, Day>;
+  kids: KidsMap;
+  /** Latest start that still makes a pinned end. */
+  releaseDay: Record<string, Day>;
+  /** Days pinned work took more than the day's capacity. */
+  over: { day: Day; by: number }[];
 }

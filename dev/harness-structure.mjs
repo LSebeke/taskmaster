@@ -187,6 +187,21 @@ export async function structureChecks({ open, shoot, check, rowByTitle, railTitl
       await page.keyboard.press('Escape');
     });
 
+    await check('a draft says hours are logged on tasks only, and has no log form', async () => {
+      await page.keyboard.press('Escape');
+      await page.locator('.tm-top button', { hasText: '+ Project' }).click();
+      await name(page).fill('Draft only');
+      await name(page).press('Enter');
+      await settle(page);
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape');
+      await select(page, 'Draft only');
+      assert.equal(await page.getByLabel('Hours to log').count(), 0);
+      assert.match(await page.locator('.tm-rail').textContent(), /Hours are logged on tasks only/);
+      await page.keyboard.press('Escape');
+      await undo(page);
+    });
+
     await check('the dependency picker in the form leaves out loops', async () => {
       await select(page, 'Frame format + CRC');
       await page.locator('.tm-rail button', { hasText: '+ Add' }).click();

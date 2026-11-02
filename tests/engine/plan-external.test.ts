@@ -19,39 +19,39 @@ describe('acceptance: external items', () => {
     state({ x: external('x', start, end), a: task('a', 12, { deps: ['x'] }), b: task('b', 6) }, [['a', 'b']]);
 
   it('a 12h depends on external 2 to 4 Nov: a starts Thu 5 Nov, capacity unchanged', () => {
-    const { by } = analyze(mk());
+    const { results: by } = analyze(mk());
     expect(day(by.a.start)).toBe('2026-11-05');
     expect(day(by.b.end)).toBe('2026-11-02'); // b has the whole 6h during the outage
   });
 
   it('same, external end moved to Mon 9 Nov: a starts Tue 10 Nov, no plan entry changes', () => {
     const st = mk('2026-11-09');
-    expect(day(analyze(st).by.a.start)).toBe('2026-11-10');
+    expect(day(analyze(st).results.a.start)).toBe('2026-11-10');
     expect(st.plan).toEqual({});
   });
 
   it('external end before today: no delay, finished', () => {
-    const { by } = analyze(mk('2026-10-05', '2026-10-01'));
+    const { results: by } = analyze(mk('2026-10-05', '2026-10-01'));
     expect(day(by.a.start)).toBe('2026-11-02');
     expect(by.x.done).toBe(true);
   });
 
   it('external end on a weekend: dependents start the next working day', () => {
-    expect(day(analyze(mk('2026-11-07')).by.a.start)).toBe('2026-11-09');
+    expect(day(analyze(mk('2026-11-07')).results.a.start)).toBe('2026-11-09');
   });
 
   it('external with no dependents, dated after a project end: finish unchanged, no capacity used', () => {
     const st = state({ p: task('p', 0), a: task('a', 12, { parent: 'p' }) }, [['a']]);
-    const end = analyze(st).by.p.end;
+    const end = analyze(st).results.p.end;
     addItem(st, { kind: 'ext', title: 'Far', pinS: D('2028-01-01'), pinE: D('2028-01-10') });
-    expect(analyze(st).by.p.end).toBe(end);
+    expect(analyze(st).results.p.end).toBe(end);
   });
 
   it.each(['2026-11-03', '2026-11-04'])('task pinned to start %s inside it: start stays, conflict', pin => {
     const st = mk();
     st.items.a.pinS = D(pin);
     const r = analyze(st);
-    expect(day(r.by.a.start)).toBe(pin);
+    expect(day(r.results.a.start)).toBe(pin);
     expect(r.conflicts.some(c => c.id === 'a')).toBe(true);
   });
 
@@ -67,14 +67,14 @@ describe('acceptance: external items', () => {
       [['a']],
     );
     expect(effDeps(st, 'a', kids(st))).toContain('x');
-    expect(day(analyze(st).by.a.start)).toBe('2026-11-05');
+    expect(day(analyze(st).results.a.start)).toBe('2026-11-05');
   });
 
   it('an unfinished external item can sit on the critical chain', () => {
     const st = state({ x: external('x', '2026-11-02', '2026-11-04'), a: task('a', 12, { deps: ['x'] }) }, [['a']]);
     const r = analyze(st);
     expect(r.links).toEqual([{ a: 'x', b: 'a', kind: 'dep' }]);
-    expect(r.by.x.crit).toBe(true);
+    expect(r.results.x.crit).toBe(true);
   });
 
   it('a finished one cannot', () => {
@@ -125,7 +125,7 @@ describe('acceptance: Update plan', () => {
   it('at top level: external items unaffected', () => {
     const st = planned();
     const a = analyze(st);
-    updatePlan(st, a, a.K['']!, true);
+    updatePlan(st, a, a.kids['']!, true);
     expect(st.plan.bench).toBeUndefined();
   });
 
@@ -143,13 +143,13 @@ describe('acceptance: Update plan', () => {
     const fw = clone(st.plan.fw);
     st.items.x.left = 80;
     const a = analyze(st);
-    updatePlan(st, a, a.K.fw!, true);
+    updatePlan(st, a, a.kids.fw!, true);
     expect(st.plan.gw).toEqual(gw);
     expect(st.plan.fw).toEqual(fw);
     expect(st.plan.x!.hours).toBe(80);
     const after = analyze(st);
-    expect(after.by.fw.planGap).toBeGreaterThan(0);
-    expect(after.by.fw.planGapH).toBe(68);
+    expect(after.results.fw.planGap).toBeGreaterThan(0);
+    expect(after.results.fw.planGapH).toBe(68);
   });
 
   it('with a nested parent selected, deep: it and its subtree change, ancestors unchanged', () => {
@@ -186,7 +186,7 @@ describe('acceptance: Update plan', () => {
     const st = planned();
     const id = addItem(st, { kind: 'item', title: 'New', parent: 'fw', hours: 6 });
     expect(st.plan[id]).toBeUndefined();
-    expect(analyze(st).by[id].shift).toBeUndefined();
+    expect(analyze(st).results[id].shift).toBeUndefined();
   });
 });
 
@@ -202,7 +202,7 @@ describe('metrics', () => {
       [['a']],
     );
     st.plan.a = { start: D('2026-11-02'), end: D('2026-11-02'), hours: 24 };
-    const { by } = analyze(st);
+    const { results: by } = analyze(st);
     expect(by.a.pct).toBe(0.25);
     expect(day(by.a.end)).toBe('2026-11-04');
     expect(by.a.shift).toBe(2);
@@ -214,7 +214,7 @@ describe('metrics', () => {
     st.today = D('2026-11-04'); // Wed: Mon and Tue elapsed
     st.plan.a = { start: D('2026-11-02'), end: D('2026-11-06'), hours: 30 }; // 2 of 5
     st.plan.b = { start: D('2026-11-09'), end: D('2026-11-13'), hours: 10 }; // not begun
-    expect(analyze(st).by.p.shouldPct).toBeCloseTo((30 * 0.4) / 40);
+    expect(analyze(st).results.p.shouldPct).toBeCloseTo((30 * 0.4) / 40);
   });
 
   it('stale: in-progress task with hours left not updated for 7 days', () => {
@@ -225,7 +225,7 @@ describe('metrics', () => {
       },
       [['a', 'b']],
     );
-    const { by } = analyze(st);
+    const { results: by } = analyze(st);
     expect(by.a.stale).toBe(7);
     expect(by.b.stale).toBeUndefined();
   });

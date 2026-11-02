@@ -24,8 +24,8 @@ describe('acceptance: creating', () => {
     const st = state({ a: task('a', 12) }, [['a']]);
     const id = addItem(st, { ...item, title: 'Empty', deadline: D('2026-12-01') });
     const r = analyze(st);
-    expect(r.by[id]).toMatchObject({ done: false, draft: true, end: null });
-    expect(r.K['']).toContain(id);
+    expect(r.results[id]).toMatchObject({ done: false, draft: true, end: null });
+    expect(r.kids['']).toContain(id);
     expect(mvp(st, id).full).toBeNull();
   });
 
@@ -35,8 +35,8 @@ describe('acceptance: creating', () => {
     setTotal(st.items[id], 6, st.today);
     ensureTiers(st);
     const r = analyze(st);
-    expect(day(r.by[id].end)).toBe('2026-11-02');
-    expect(r.by[id].draft).toBeUndefined();
+    expect(day(r.results[id].end)).toBe('2026-11-02');
+    expect(r.results[id].draft).toBeUndefined();
     expect(st.tiers.flat()).toContain(id);
   });
 
@@ -59,27 +59,27 @@ describe('acceptance: creating', () => {
     const st = state({ a: task('a', 12) }, [['a'], []]);
     st.plan.a = { start: st.today, end: st.today + 1, hours: 12 };
     const before = structuredClone(st.plan);
-    const left = analyze(st).by.a.left;
+    const left = analyze(st).results.a.left;
     const id = addItem(st, { ...item, title: 'T', hours: 16 });
     expect(st.tiers).toEqual([['a'], [id]]);
     expect(st.plan).toEqual(before);
     const r = analyze(st);
-    expect(day(r.by[id].end)).toBe('2026-11-06'); // 28h at 6h/day: 5 working days
-    expect(r.by.a.left).toBe(left);
+    expect(day(r.results[id].end)).toBe('2026-11-06'); // 28h at 6h/day: 5 working days
+    expect(r.results.a.left).toBe(left);
   });
 
   it('dependency on a draft is ignored; dependent is scheduled', () => {
     const st = state({}, [[]]);
     const draft = addItem(st, { ...item, title: 'Empty' });
     const a = addItem(st, { ...item, title: 'A', hours: 6, deps: [draft] });
-    expect(day(analyze(st).by[a].end)).toBe('2026-11-02');
+    expect(day(analyze(st).results[a].end)).toBe('2026-11-02');
   });
 
   it('a milestone depending only on drafts lands on today', () => {
     const st = state({ p: task('p', 0), kid: task('kid', 6, { parent: 'p' }) }, [['kid']]);
     const draft = addItem(st, { ...item, title: 'Empty' });
     const m = addItem(st, { kind: 'ms', title: 'M', parent: 'p', deps: [draft] });
-    expect(day(analyze(st).by[m].end)).toBe('2026-11-02');
+    expect(day(analyze(st).results[m].end)).toBe('2026-11-02');
   });
 });
 
@@ -89,17 +89,17 @@ describe('milestones', () => {
   it('date is when its dependencies finish', () => {
     const st = withKid();
     const m = addItem(st, { kind: 'ms', title: 'M', parent: 'p', deps: ['a'] });
-    expect(day(analyze(st).by[m].end)).toBe('2026-11-03');
+    expect(day(analyze(st).results[m].end)).toBe('2026-11-03');
   });
 
   it('date is its pin, done once that date has passed', () => {
     const st = withKid();
     const m = addItem(st, { kind: 'ms', title: 'M', parent: 'p', pinE: D('2026-10-30') });
     const r = analyze(st);
-    expect(day(r.by[m].end)).toBe('2026-10-30');
-    expect(r.by[m].done).toBe(true);
+    expect(day(r.results[m].end)).toBe('2026-10-30');
+    expect(r.results[m].done).toBe(true);
     st.items[m].pinE = D('2026-11-09');
-    expect(analyze(st).by[m].done).toBe(false);
+    expect(analyze(st).results[m].done).toBe(false);
   });
 
   it('spec: dependencies finished in the past keep the milestone date there', () => {
@@ -107,8 +107,8 @@ describe('milestones', () => {
     st.items.a = task('a', 0, { parent: 'p', spent: 12, doneOn: D('2026-10-28') });
     const m = addItem(st, { kind: 'ms', title: 'M', parent: 'p', deps: ['a'] });
     const r = analyze(st);
-    expect(day(r.by[m].end)).toBe('2026-10-28');
-    expect(r.by[m].done).toBe(true);
+    expect(day(r.results[m].end)).toBe('2026-10-28');
+    expect(r.results[m].done).toBe(true);
   });
 
   it('a milestone waiting on a milestone settles the same day, even with capacity used up', () => {
@@ -117,15 +117,15 @@ describe('milestones', () => {
     st.items[m2Id] = { title: 'm2', parent: 'p', kind: 'ms', deps: ['m1'] };
     st.items.m1 = { title: 'm1', parent: 'p', kind: 'ms', deps: ['a'] };
     const r = analyze(st);
-    expect(day(r.by.m1.end)).toBe('2026-11-02');
-    expect(day(r.by.m2.end)).toBe('2026-11-02');
+    expect(day(r.results.m1.end)).toBe('2026-11-02');
+    expect(day(r.results.m2.end)).toBe('2026-11-02');
   });
 
   it('spec: a pin before a dependency finishes is a conflict and the pin stays', () => {
     const st = withKid();
     const m = addItem(st, { kind: 'ms', title: 'M', parent: 'p', deps: ['a'], pinE: D('2026-11-02') });
     const r = analyze(st);
-    expect(day(r.by[m].end)).toBe('2026-11-02');
+    expect(day(r.results[m].end)).toBe('2026-11-02');
     expect(r.conflicts.some(c => c.id === m)).toBe(true);
   });
 });
@@ -151,9 +151,9 @@ describe('acceptance: first child and last child', () => {
     expect(t.pinE).toBeUndefined();
     expect(t.deps).toEqual(['x']);
     const r = analyze(st);
-    expect(r.by.t.spent).toBe(2);
-    expect(r.by.t.left).toBe(6);
-    expect(day(r.by[c].start)).toBe('2026-11-04'); // x takes 2 and 3 Nov
+    expect(r.results.t.spent).toBe(2);
+    expect(r.results.t.left).toBe(6);
+    expect(day(r.results[c].start)).toBe('2026-11-04'); // x takes 2 and 3 Nov
     ensureTiers(st);
     expect(st.tiers[1]).toEqual([c]);
   });
@@ -175,7 +175,7 @@ describe('acceptance: first child and last child', () => {
     expect(t.budget).toBeUndefined();
     ensureTiers(st);
     expect(st.tiers.at(-1)).toContain('t');
-    expect(analyze(st).by.t.end).not.toBeNull();
+    expect(analyze(st).results.t.end).not.toBeNull();
   });
 
   it('move the last child away: same', () => {
@@ -191,7 +191,7 @@ describe('acceptance: first child and last child', () => {
     const c = addItem(st, { ...item, title: 'c', parent: 't', hours: 6 });
     removeItem(st, c);
     expect(st.items.t.doneOn).toBe(st.today);
-    expect(analyze(st).by.t.done).toBe(true);
+    expect(analyze(st).results.t.done).toBe(true);
   });
 });
 
@@ -213,14 +213,14 @@ describe('acceptance: moving', () => {
 
   it('budgets, plans and pins stay, rollups change', () => {
     const st = tree();
-    const leftQ = analyze(st).by.q.left;
+    const leftQ = analyze(st).results.q.left;
     const plan = structuredClone(st.plan);
     moveItem(st, 'a', 'q');
     expect(st.items.a.pinS).toBe(D('2026-11-04'));
     expect(st.items.p.budget).toBe(50);
     expect(st.items.q.budget).toBe(30);
     expect(st.plan).toEqual(plan);
-    expect(analyze(st).by.q.left).toBe(leftQ + 10);
+    expect(analyze(st).results.q.left).toBe(leftQ + 10);
   });
 
   it('sibling order is respected', () => {

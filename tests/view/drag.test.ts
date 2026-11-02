@@ -99,7 +99,7 @@ describe('canDrag', () => {
 describe('dotAt', () => {
   it('sits just past the end of the bar, at its height', () => {
     const scale = makeScale(today, 10);
-    const bar = { kind: 'bar', d0: today, d1: today + 5, top: 21, h: 4 } as never;
+    const bar = { kind: 'bar', startDay: today, endDay: today + 5, top: 21, h: 4 } as never;
     const dot = dotAt(bar, scale);
     expect(dot.x).toBeGreaterThan(50);
     expect(dot.x).toBeLessThan(62);

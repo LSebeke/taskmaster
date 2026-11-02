@@ -40,8 +40,8 @@ const color = (pal: Palette, n: number) => (n ? pal[`c${n}` as 'c1'] : pal.ink2)
 
 function drawBar(c: CanvasRenderingContext2D, b: Bar, f: Frame, y: number) {
   const { scale, pal, scrollLeft } = f;
-  const x0 = scale.x(b.d0) - scrollLeft;
-  const w = scale.x(b.d1) - scale.x(b.d0);
+  const x0 = scale.x(b.startDay) - scrollLeft;
+  const w = scale.x(b.endDay) - scale.x(b.startDay);
   const top = y + b.top;
 
   if (b.kind === 'ext') {
@@ -57,7 +57,7 @@ function drawBar(c: CanvasRenderingContext2D, b: Bar, f: Frame, y: number) {
   }
 
   if (b.kind === 'ms') {
-    const cx = scale.x(b.d0 + 0.5) - scrollLeft;
+    const cx = scale.x(b.startDay + 0.5) - scrollLeft;
     c.globalAlpha = b.role === 'ghost' ? 0.5 : 1;
     c.fillStyle = color(pal, b.color);
     c.beginPath();
@@ -111,8 +111,8 @@ function drawLinks(c: CanvasRenderingContext2D, f: Frame, bottom: number) {
     const y0 = yAt(l.i0, l.y0);
     const y1 = yAt(l.i1, l.y1);
     if (Math.max(y0, y1) < HEAD || Math.min(y0, y1) > bottom) continue;
-    const x0 = scale.x(l.d0) - scrollLeft;
-    const x1 = scale.x(l.d1) - scrollLeft;
+    const x0 = scale.x(l.startDay) - scrollLeft;
+    const x1 = scale.x(l.endDay) - scrollLeft;
     const mid = x1 > x0 + 10 ? x1 - 5 : x0 + 5;
     if (Math.max(x0, x1, mid) < 0 || Math.min(x0, x1, mid) > width) continue;
     c.strokeStyle = l.tone === 'crit' ? pal.crit : pal.axis;
@@ -280,12 +280,12 @@ export function drawGantt(c: CanvasRenderingContext2D, f: Frame) {
   const bottom = height - (show.load ? LOADH : 0);
   c.clearRect(0, 0, width, height);
 
-  const d0 = Math.floor(scale.dayAt(scrollLeft));
-  const d1 = Math.ceil(scale.dayAt(scrollLeft + width));
+  const startDay = Math.floor(scale.dayAt(scrollLeft));
+  const endDay = Math.ceil(scale.dayAt(scrollLeft + width));
   if (show.nonwork && scale.ppd >= WEEKEND_MIN_PPD) {
     c.fillStyle = pal.grid;
     c.globalAlpha = 0.35;
-    for (let d = d0; d <= d1; d++) if (!isWork(d, st.settings)) c.fillRect(scale.x(d) - scrollLeft, HEAD, scale.ppd, bottom - HEAD);
+    for (let d = startDay; d <= endDay; d++) if (!isWork(d, st.settings)) c.fillRect(scale.x(d) - scrollLeft, HEAD, scale.ppd, bottom - HEAD);
     c.globalAlpha = 1;
   }
   if (show.grid) {

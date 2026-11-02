@@ -2,7 +2,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Analysis, NewItem, RunningTimer, State, Todo } from '../../engine';
 import { unlinkNote, type Edit } from '../../store/edits';
-import { fmtD, h1, noteName } from '../format';
+import { fmtD, fmtH, noteName } from '../format';
 import { statusOf } from '../explain';
 import type { Signals } from '../signals';
 import type { UiState } from '../ui-state';
@@ -57,7 +57,7 @@ export function StatusCard({ st, a, id }: { st: State; a: Analysis; id: string }
 }
 
 export function Tiles({ st, a, id }: { st: State; a: Analysis; id: string }) {
-  const b = a.by[id];
+  const b = a.results[id];
   const it = st.items[id];
   const should = b.shouldPct == null ? null : Math.round(b.shouldPct * 100);
   const budget = it.budget ?? st.plan[id]?.hours;
@@ -66,7 +66,7 @@ export function Tiles({ st, a, id }: { st: State; a: Analysis; id: string }) {
   return (
     <div class="tm-tiles">
       <div class="tm-tile">
-        <b>{h1(b.left)}h</b>
+        <b>{fmtH(b.left)}h</b>
         <small>hours left</small>
       </div>
       <div class="tm-tile">
@@ -74,16 +74,16 @@ export function Tiles({ st, a, id }: { st: State; a: Analysis; id: string }) {
         <small>done{should != null && `, plan says ${should}% today`}</small>
       </div>
       <div class="tm-tile">
-        <b>{h1(b.spent)}h</b>
-        <small>spent{!!budget && ` of ${h1(budget)}h ${it.budget ? 'budget' : 'plan'}`}</small>
+        <b>{fmtH(b.spent)}h</b>
+        <small>spent{!!budget && ` of ${fmtH(budget)}h ${it.budget ? 'budget' : 'plan'}`}</small>
       </div>
       <div class="tm-tile">
         <b class={over ? 'tm-tone-crit' : ''}>
           {over && '▲ '}
-          {h1(total)}h
+          {fmtH(total)}h
         </b>
         <small>
-          projected total{!!budget && ` (${over ? '+' : ''}${h1(total - budget)}h)`}
+          projected total{!!budget && ` (${over ? '+' : ''}${fmtH(total - budget)}h)`}
         </small>
       </div>
     </div>
@@ -165,8 +165,8 @@ export function Todos({ st, a, id, act, readTodos, previewing }: PanelProps) {
       {shown.map((t, i) => (
         <li key={i} class={t.done ? 'tm-x' : ''}>
           <label>
-            <input type="checkbox" checked={t.done} onChange={e => act.setTodoDone(id, i, t.t, e.currentTarget.checked)} />
-            <span>{t.t}</span>
+            <input type="checkbox" checked={t.done} onChange={e => act.setTodoDone(id, i, t.text, e.currentTarget.checked)} />
+            <span>{t.text}</span>
           </label>
         </li>
       ))}

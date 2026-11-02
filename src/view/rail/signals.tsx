@@ -1,5 +1,5 @@
 import { mvpVerdict, type Day, type MvpVerdict } from '../../engine';
-import { fmtD, h1 } from '../format';
+import { fmtD, fmtH } from '../format';
 import { Card, Link, type PanelProps } from './parts';
 
 const VERDICTS: Record<MvpVerdict, { tone: string; head: string }> = {
@@ -16,7 +16,7 @@ function Option({ label, day, saves, deadline }: { label: string; day: Day | nul
     <div class="tm-li">
       <span class="tm-grow">
         {label}
-        {!!saves && <span class="tm-sub"> (−{h1(saves)}h)</span>}
+        {!!saves && <span class="tm-sub"> (−{fmtH(saves)}h)</span>}
       </span>
       <span class="tm-num">
         {finish(day)} {day == null || day <= deadline ? '✓' : '▲'}
@@ -55,7 +55,7 @@ export function EstimateCard({ st, a, id, act, previewing }: Pick<PanelProps, 's
       <h3>Your estimates</h3>
       <div class="tm-estimate">
         <Card>
-          Finished tasks ran <b>{h1(e.ratio)}×</b> estimate. Adjusted finish: <b>{finish(e.finish)}</b>
+          Finished tasks ran <b>{fmtH(e.ratio)}×</b> estimate. Adjusted finish: <b>{finish(e.finish)}</b>
         </Card>
       </div>
     </>

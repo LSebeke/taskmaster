@@ -19,7 +19,7 @@ describe('scene', () => {
     planned(st, 'a', '2026-11-02', '2026-11-05');
     const [row] = sceneOf(st).scene.rows;
     expect(row.bars.map(b => [b.layer, b.role])).toEqual([['fc', 'ghost'], ['plan', 'solid']]);
-    expect(row.bars[1]).toMatchObject({ d0: D('2026-11-02'), d1: D('2026-11-05') + 1 });
+    expect(row.bars[1]).toMatchObject({ startDay: D('2026-11-02'), endDay: D('2026-11-05') + 1 });
   });
 
   it('a new item has a ghost forecast bar and no plan bar', () => {
@@ -92,7 +92,7 @@ describe('scene', () => {
     planned(st, 'a', '2026-11-02', '2026-11-03');
     planned(st, 'b', '2026-11-10', '2026-11-12');
     const { scene } = sceneOf(st, { ...defaultUi(), fc: 'off' });
-    expect(scene.links[0]).toMatchObject({ d0: D('2026-11-04'), d1: D('2026-11-10'), y0: 12 });
+    expect(scene.links[0]).toMatchObject({ startDay: D('2026-11-04'), endDay: D('2026-11-10'), y0: 12 });
   });
 
   it('attaches links to plan bars when a hidden ghost leaves no forecast on show', () => {
@@ -102,7 +102,7 @@ describe('scene', () => {
     const ui = defaultUi();
     const { scene } = sceneOf(st, { ...ui, show: { ...ui.show, ghost: false } });
     expect(scene.rows[0].bars.map(b => b.role)).toEqual(['solid']);
-    expect(scene.links[0]).toMatchObject({ d0: D('2026-11-04'), d1: D('2026-11-10'), y0: 12 });
+    expect(scene.links[0]).toMatchObject({ startDay: D('2026-11-04'), endDay: D('2026-11-10'), y0: 12 });
   });
 
   it('draws no links when no bar is on show', () => {

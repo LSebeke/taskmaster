@@ -108,7 +108,7 @@ const compact = <T extends object>(o: T): T =>
 
 /** The cache has no list item text: `t` stays empty until readTodos. */
 const todosOf = (cache: CachedMetadata) =>
-  (cache.listItems ?? []).filter(l => l.task !== undefined).map(l => ({ t: '', done: l.task !== ' ' }));
+  (cache.listItems ?? []).filter(l => l.task !== undefined).map(l => ({ text: '', done: l.task !== ' ' }));
 
 function projectNote(app: StoreApp, file: TFile, cache: CachedMetadata, warn: Warn, alias?: ProjectOptions['alias']): Item | null {
   const fm = cache.frontmatter!;
@@ -117,7 +117,10 @@ function projectNote(app: StoreApp, file: TFile, cache: CachedMetadata, warn: Wa
 
   const type = fm['tm-type'];
   const kind = typeof type === 'string' ? (KINDS[type] ?? null) : null;
-  if (!kind) warn(file.path, 'tm-type', `Expected item, milestone or external, got ${JSON.stringify(type)}`);
+  if (!kind) {
+    warn(file.path, 'tm-type', `Left out: expected item, milestone or external, got ${JSON.stringify(type)}`);
+    return null;
+  }
 
   const base = {
     title: file.basename,

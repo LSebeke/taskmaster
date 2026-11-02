@@ -27,7 +27,7 @@ export function dragZone(x0: number, x1: number, x: number): DragMode {
 export function canDrag(st: State, a: Analysis, bar: Bar): boolean {
   if (bar.layer !== 'fc') return false;
   if (bar.kind === 'ext') return true;
-  return bar.kind === 'bar' && !a.K[bar.id] && !a.by[bar.id]?.done && st.items[bar.id]?.kind === 'item';
+  return bar.kind === 'bar' && !a.kids[bar.id] && !a.results[bar.id]?.done && st.items[bar.id]?.kind === 'item';
 }
 
 /** Pins after dragging by `days` from where the bar was. An edge stops at the other edge. */
@@ -47,8 +47,8 @@ export const forecastBar = (row: SceneRow | undefined): Bar | undefined => row?.
 
 /** The link dot: past the bar's end, in chart x and height inside the row. */
 export function dotAt(bar: Bar, scale: TimeScale): { x: number; y: number } {
-  if (bar.kind === 'ms') return { x: scale.x(bar.d0 + 0.5) + DOT_GAP_MS, y: bar.top };
-  return { x: scale.x(bar.d1) + DOT_GAP, y: bar.top + bar.h / 2 };
+  if (bar.kind === 'ms') return { x: scale.x(bar.startDay + 0.5) + DOT_GAP_MS, y: bar.top };
+  return { x: scale.x(bar.endDay) + DOT_GAP, y: bar.top + bar.h / 2 };
 }
 
 export function overDot(bar: Bar, scale: TimeScale, x: number, y: number): boolean {

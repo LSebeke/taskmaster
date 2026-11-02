@@ -1,18 +1,22 @@
 import type { Day, Item } from './types';
 
+/** On a task already done and staying done, `touched` holds the done date, so it stays. */
 export function setLeft(it: Item, left: number, today: Day): void {
-  it.left = Math.max(0, left);
-  it.touched = today;
-  if (it.left < 1e-3) {
+  const finished = left < 1e-3;
+  if (finished && it.doneOn != null) {
     it.left = 0;
-    it.doneOn ??= today;
-  } else it.doneOn = null;
+    it.touched ??= it.doneOn;
+    return;
+  }
+  it.left = finished ? 0 : left;
+  it.touched = today;
+  it.doneOn = finished ? today : null;
 }
 
 export const setTotal = (it: Item, total: number, today: Day): void => setLeft(it, total - (it.spent ?? 0), today);
 
-/** Moves hours from left to spent. Never moves the bar. */
-export function logHours(it: Item, day: Day, h: number, today: Day): void {
+/** Moves hours from left to spent, and past left the total rises: it is real work. Never moves the bar. */
+export function addLog(it: Item, day: Day, h: number, today: Day): void {
   const log = (it.log ||= []);
   const entry = log.find(x => x.d === day);
   if (entry) entry.h += h;

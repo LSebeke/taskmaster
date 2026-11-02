@@ -27,8 +27,8 @@ export interface Bar {
   layer: LayerName;
   role: 'solid' | 'ghost';
   /** Left edge of the first day, right edge of the last. For a milestone, the day itself. */
-  d0: Day;
-  d1: Day;
+  startDay: Day;
+  endDay: Day;
   top: number;
   h: number;
   /** Project colour, 1 to 8. 0 is neutral. */
@@ -59,8 +59,8 @@ export interface Link {
   /** Row indexes. */
   i0: number;
   i1: number;
-  d0: Day;
-  d1: Day;
+  startDay: Day;
+  endDay: Day;
   /** Height inside each row. */
   y0: number;
   y1: number;
@@ -76,7 +76,7 @@ export interface Scene {
   rootColors: Map<string, number>;
 }
 
-export const projectRoots = (st: State, a: Analysis): string[] => (a.K[''] ?? []).filter(i => st.items[i].kind !== 'ext');
+export const projectRoots = (st: State, a: Analysis): string[] => (a.kids[''] ?? []).filter(i => st.items[i].kind !== 'ext');
 
 function rootOfCached(st: State, id: string, memo: Map<string, string>): string {
   const known = memo.get(id);
@@ -89,10 +89,10 @@ function rootOfCached(st: State, id: string, memo: Map<string, string>): string 
 
 function barsOf(st: State, a: Analysis, id: string, color: number, ui: UiState): Bar[] {
   const it = st.items[id];
-  const b = a.by[id];
+  const b = a.results[id];
   if (!b) return [];
   const { solid, ghost } = layers(ui);
-  const group = !!a.K[id];
+  const group = !!a.kids[id];
   const fc = b.start != null && b.end != null ? { start: b.start, end: b.end } : null;
   const plan = st.plan[id] ?? null;
   const dates = (l: LayerName) => (l === 'fc' ? fc : plan);
@@ -107,8 +107,8 @@ function barsOf(st: State, a: Analysis, id: string, color: number, ui: UiState):
         layer: 'fc',
         role: 'solid',
         color: 0,
-        d0: fc.start,
-        d1: fc.end + 1,
+        startDay: fc.start,
+        endDay: fc.end + 1,
         top: EXT_TOP,
         h: EXT_H,
         crit: ui.show.crit && b.crit && !b.done,
@@ -126,7 +126,7 @@ function barsOf(st: State, a: Analysis, id: string, color: number, ui: UiState):
     const add = (l: LayerName | null, role: Bar['role'], y: number, r: number) => {
       const at = l && dates(l);
       if (!l || !at) return;
-      out.push({ ...common, kind: 'ms', layer: l, role, d0: at.end, d1: at.end, top: y, h: r, crit: false, y0: y - MS_SLACK, y1: y + MS_SLACK, slack: MS_SLACK });
+      out.push({ ...common, kind: 'ms', layer: l, role, startDay: at.end, endDay: at.end, top: y, h: r, crit: false, y0: y - MS_SLACK, y1: y + MS_SLACK, slack: MS_SLACK });
     };
     add(ghost, 'ghost', MS_GHOST_Y, MS_GHOST_R);
     add(solid, 'solid', MS_SOLID_Y, MS_SOLID_R);
@@ -145,8 +145,8 @@ function barsOf(st: State, a: Analysis, id: string, color: number, ui: UiState):
       kind: 'bar',
       layer: ghost,
       role: 'ghost',
-      d0: ghostAt.start,
-      d1: Math.max(ghostAt.start, ghostAt.end) + 1,
+      startDay: ghostAt.start,
+      endDay: Math.max(ghostAt.start, ghostAt.end) + 1,
       top: GHOST_TOP,
       h: GHOST_H,
       crit: ghost === 'fc' && crit,
@@ -165,8 +165,8 @@ function barsOf(st: State, a: Analysis, id: string, color: number, ui: UiState):
       kind: 'bar',
       layer: solid,
       role: 'solid',
-      d0: solidAt.start,
-      d1: Math.max(solidAt.start, solidAt.end) + 1,
+      startDay: solidAt.start,
+      endDay: Math.max(solidAt.start, solidAt.end) + 1,
       top,
       h,
       crit: solid === 'fc' && crit,
@@ -190,7 +190,7 @@ function buildLinks(st: State, a: Analysis, rows: Row[], ui: UiState): Link[] {
   const lane = solid === layer ? LANE_SOLID : LANE_GHOST;
   const isExt = (id: string) => st.items[id].kind === 'ext';
   const unseen = (id: string) => !ui.show.milestones && st.items[id].kind === 'ms';
-  const dates = (id: string) => (layer === 'fc' || isExt(id) ? a.by[id] : st.plan[id]);
+  const dates = (id: string) => (layer === 'fc' || isExt(id) ? a.results[id] : st.plan[id]);
   const yOf = (id: string) => (isExt(id) ? LANE_EXT : lane);
   const links: Link[] = [];
   const add = (from: string, to: string, tone: Link['tone'], dashed: boolean, width: number) => {
@@ -200,7 +200,7 @@ function buildLinks(st: State, a: Analysis, rows: Row[], ui: UiState): Link[] {
     const end = dates(from)?.end;
     const start = dates(to)?.start;
     if (end == null || start == null) return;
-    links.push({ a: from, b: to, i0, i1, d0: end + 1, d1: start, y0: yOf(from), y1: yOf(to), tone, dashed, width });
+    links.push({ a: from, b: to, i0, i1, startDay: end + 1, endDay: start, y0: yOf(from), y1: yOf(to), tone, dashed, width });
   };
 
   // Only dep links replace a plain link: capacity links are off by default, and it would vanish with them.
@@ -211,7 +211,7 @@ function buildLinks(st: State, a: Analysis, rows: Row[], ui: UiState): Link[] {
       const it = st.items[r.id];
       for (const p of it.deps ?? []) {
         if (ui.show.crit && critical.has(`${p}>${r.id}`)) continue;
-        const end = a.by[p]?.end;
+        const end = a.results[p]?.end;
         const late = it.pinS != null && end != null && (isExt(p) ? end >= it.pinS : end > it.pinS);
         add(p, r.id, late ? 'crit' : 'axis', false, 1);
       }

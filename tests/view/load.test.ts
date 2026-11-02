@@ -62,3 +62,16 @@ describe('load strip', () => {
     expect(load(st).peak).toBe(90);
   });
 });
+
+describe('overbooked marker', () => {
+  it('marks a week with one overbooked day, even when the week as a whole fits', () => {
+    const both = { pinS: D('2026-11-02'), pinE: D('2026-11-02') };
+    const st = state({ a: task('a', 10, both) }, [['a']]);
+    const a = analyze(st);
+    expect(a.over.map(o => o.day)).toEqual([D('2026-11-02')]);
+    const { weeks } = buildLoad(st, a, ['a'], span);
+    expect(weeks[0].total).toBeLessThan(weeks[0].cap);
+    expect(weeks[0].over).toBe(true);
+    expect(weeks[1].over).toBe(false);
+  });
+});

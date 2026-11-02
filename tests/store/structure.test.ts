@@ -51,7 +51,7 @@ describe('creating', () => {
     expect(items()[id!]).toMatchObject({ title: 'Alpha', left: 12, est: 12, scope: 'could', deadline: D('2026-12-01'), parent: null });
     expect(store.state.tiers.flat()).toContain(id);
     expect(store.state.plan[id!]).toBeUndefined();
-    expect(analyze(store.state).by[id!].end).not.toBeNull();
+    expect(analyze(store.state).results[id!].end).not.toBeNull();
     expect(labels).toEqual(['Added Alpha']);
     await settle();
     expect(o.frontmatter(id!)).toMatchObject({ 'tm-type': 'item', 'tm-left': 12, 'tm-estimate': 12, 'tm-scope': 'could', 'tm-deadline': '2026-12-01' });
@@ -62,7 +62,7 @@ describe('creating', () => {
   it('a draft: no hours, no level', async () => {
     await boot();
     const { id } = await add({ title: 'Draft' });
-    expect(analyze(store.state).by[id!]).toMatchObject({ draft: true, end: null });
+    expect(analyze(store.state).results[id!]).toMatchObject({ draft: true, end: null });
     expect(store.state.tiers.flat()).not.toContain(id);
   });
 
@@ -160,7 +160,7 @@ describe('the first child', () => {
     expect(items()[P].pinS).toBeUndefined();
     expect(items()[id!].parent).toBe(P);
     expect(store.state.tiers).toEqual([[p('y')], [p('x'), id], []]);
-    expect(analyze(store.state).by[P].spent).toBe(2);
+    expect(analyze(store.state).results[P].spent).toBe(2);
     expect(store.undoLabel).toBe('Added Child');
     expect(labels).toEqual(['Added Child']);
     await settle();
@@ -535,13 +535,13 @@ describe('external items', () => {
   it('dates are fields: changing one moves the forecast, undo moves it back', async () => {
     await bootExt();
     store.apply(addDep(p('a'), X));
-    expect(analyze(store.state).by[p('a')].start).toBe(D('2026-11-05'));
+    expect(analyze(store.state).results[p('a')].start).toBe(D('2026-11-05'));
     store.apply(setPin(X, 'end', D('2026-11-09')));
-    expect(analyze(store.state).by[p('a')].start).toBe(D('2026-11-10'));
+    expect(analyze(store.state).results[p('a')].start).toBe(D('2026-11-10'));
     await settle();
     expect(o.frontmatter(X)['tm-pin-end']).toBe('2026-11-09');
     await store.undo();
-    expect(analyze(store.state).by[p('a')].start).toBe(D('2026-11-05'));
+    expect(analyze(store.state).results[p('a')].start).toBe(D('2026-11-05'));
   });
 
   it('start cannot pass end, and the other way round', async () => {
@@ -567,9 +567,9 @@ describe('external items', () => {
     store.apply(addDep(p('a'), X));
     await settle();
     await store.remove(X);
-    expect(analyze(store.state).by[p('a')].start).toBe(D('2026-11-02'));
+    expect(analyze(store.state).results[p('a')].start).toBe(D('2026-11-02'));
     await store.undo();
-    expect(analyze(store.state).by[p('a')].start).toBe(D('2026-11-05'));
+    expect(analyze(store.state).results[p('a')].start).toBe(D('2026-11-05'));
   });
 });
 

@@ -734,7 +734,7 @@ const check = async (name, fn) => {
     assert.equal(await dialog.count(), 0);
     const file = await page.evaluate(() => window.tm.stateFile());
     const path = await pathOf(page, 'gw.fw.drv.can');
-    assert.ok(await page.evaluate(i => window.tm.store.state.plan[i].end === window.tm.analyze().by[i].end, path), 'took the forecast');
+    assert.ok(await page.evaluate(i => window.tm.store.state.plan[i].end === window.tm.analyze().results[i].end, path), 'took the forecast');
     assert.deepEqual(await planOf('gw'), top);
     assert.deepEqual(await planOf('gw.fw'), fw);
     assert.deepEqual(await note(page, 'x.bench'), ext);
@@ -865,8 +865,8 @@ const check = async (name, fn) => {
     assert.equal(ends.link.y0, 23);
     await seg('Forecast').getByText('Off').click();
     const off = await page.evaluate(({ a, b }) => window.tm.view.gantt.links.find(k => k.a === a && k.b === b), { a: ends.link.a, b: ends.link.b });
-    assert.equal(off.d0, ends.plan[ends.link.a].end + 1);
-    assert.equal(off.d1, ends.plan[ends.link.b].start);
+    assert.equal(off.startDay, ends.plan[ends.link.a].end + 1);
+    assert.equal(off.endDay, ends.plan[ends.link.b].start);
     assert.equal(off.y0, 12);
     await seg('Forecast').getByText('Ghost').click();
   });

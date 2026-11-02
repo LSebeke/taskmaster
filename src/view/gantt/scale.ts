@@ -36,8 +36,8 @@ export function chartSpan(st: State, a: Analysis): { a: Day; b: Day } {
     lo = Math.min(lo, v);
     hi = Math.max(hi, v);
   };
-  for (const id in a.by) {
-    const b = a.by[id];
+  for (const id in a.results) {
+    const b = a.results[id];
     const p = st.plan[id];
     see(b.start);
     see(b.end);
@@ -63,13 +63,13 @@ export interface Ticks {
 }
 
 export function axisTicks(scale: TimeScale, scrollLeft: number, width: number, axis: Axis): Ticks {
-  const d0 = Math.floor(scale.dayAt(scrollLeft));
-  const d1 = Math.ceil(scale.dayAt(scrollLeft + width));
+  const startDay = Math.floor(scale.dayAt(scrollLeft));
+  const endDay = Math.ceil(scale.dayAt(scrollLeft + width));
   const at = (d: Day) => scale.x(d) - scrollLeft;
 
   const every = weekEvery(scale.ppd, axis);
   const weeks: Ticks['weeks'] = [];
-  for (let w = weekOf(d0); weekStart(w) <= d1; w++) {
+  for (let w = weekOf(startDay); weekStart(w) <= endDay; w++) {
     if (w % every !== 0) continue;
     const d = weekStart(w);
     const label = axis === 'cw' ? `${scale.ppd >= 5 ? 'CW' : ''}${isoWeek(d)}` : String(Number(iso(d).slice(8)));
@@ -77,7 +77,7 @@ export function axisTicks(scale: TimeScale, scrollLeft: number, width: number, a
   }
 
   const firsts: Day[] = [];
-  for (let d = d0 - 31; d <= d1; d++) if (iso(d).endsWith('-01')) firsts.push(d);
+  for (let d = startDay - 31; d <= endDay; d++) if (iso(d).endsWith('-01')) firsts.push(d);
   const months: Ticks['months'] = [];
   firsts.forEach((d, i) => {
     const x = at(d);

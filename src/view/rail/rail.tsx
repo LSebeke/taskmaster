@@ -11,7 +11,7 @@ function Panel({ st, a, ui, roots, act, readTodos, previewing }: RailProps) {
   const common = { st, a, act, readTodos, previewing };
   if (ui.form) return <NewForm st={st} a={a} form={ui.form} act={act} key={ui.form.nonce} />;
   if (sel && st.items[sel].kind === 'ext') return <ExternalPanel {...common} id={sel} key={sel} />;
-  if (sel && !a.K[sel]) return <TaskPanel {...common} id={sel} key={sel} />;
+  if (sel && !a.kids[sel]) return <TaskPanel {...common} id={sel} key={sel} />;
   const id = sel ?? focus;
   if (!id) return <AllProjects st={st} a={a} act={act} roots={roots} />;
   return <Overview {...common} id={id} key={id} selected={!!sel} focused={focus === id} />;

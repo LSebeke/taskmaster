@@ -11,8 +11,8 @@ export function hitTest(scene: Scene, scale: TimeScale, x: number, y: number): B
   for (let k = row.bars.length - 1; k >= 0; k--) {
     const b = row.bars[k];
     if (inside < b.y0 || inside > b.y1) continue;
-    const x0 = b.kind === 'ms' ? scale.x(b.d0 + 0.5) : scale.x(b.d0);
-    const x1 = b.kind === 'ms' ? x0 : scale.x(b.d1);
+    const x0 = b.kind === 'ms' ? scale.x(b.startDay + 0.5) : scale.x(b.startDay);
+    const x1 = b.kind === 'ms' ? x0 : scale.x(b.endDay);
     if (x >= x0 - b.slack && x <= x1 + b.slack) return b;
   }
   return null;

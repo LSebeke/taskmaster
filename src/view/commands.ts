@@ -1,5 +1,5 @@
 import { Notice, type App } from 'obsidian';
-import { kids } from '../engine';
+import { takesHours } from '../store/edits';
 import type { ViewStore } from './gantt-app';
 import { LogHoursModal } from './prompts';
 import { stopAndAsk } from './timer';
@@ -33,11 +33,11 @@ function toggleTimer(h: CommandHost) {
   if (!id || !store.startTimer(id)) new Notice(`${NO_TASK} It needs hours left.`);
 }
 
-function logHours(h: CommandHost) {
+function askLog(h: CommandHost) {
   const store = h.store();
   const st = store.state;
   const id = current(h);
-  if (id && st.items[id]?.kind === 'item' && !kids(st)[id]) new LogHoursModal(h.app, store, id).open();
+  if (id && takesHours(st, id)) new LogHoursModal(h.app, store, id).open();
   else new Notice(NO_TASK);
 }
 
@@ -54,5 +54,5 @@ export const commands = (h: CommandHost): Command[] => [
   { id: 'new-project', name: 'New project', run: async () => (await h.view()).gantt?.newProject() },
   { id: 'new-task', name: 'New task under current note', run: () => newTask(h) },
   { id: 'toggle-timer', name: 'Start/stop timer', run: () => toggleTimer(h) },
-  { id: 'log-hours', name: 'Log hours', run: () => logHours(h) },
+  { id: 'log-hours', name: 'Log hours', run: () => askLog(h) },
 ];

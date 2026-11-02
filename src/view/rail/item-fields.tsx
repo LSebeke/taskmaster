@@ -1,10 +1,8 @@
 import { useMemo, useRef, useState } from 'preact/hooks';
 import { placeError, subtree } from '../../engine';
 import { addDep, removeDep } from '../../store/edits';
-import { blockChoices, parentChoices } from '../deps';
+import { blockChoices, INDENT, parentChoices } from '../deps';
 import { Dated, Link, type PanelProps } from './parts';
-
-const INDENT = '   ';
 
 /** Commits on Enter or leaving. A blank name goes back. */
 export function NameField({ value, onCommit }: { value: string; onCommit(title: string): void }) {
@@ -33,7 +31,7 @@ export function NameField({ value, onCommit }: { value: string; onCommit(title: 
 /** The tree. What a move cannot do from the shape of it is disabled; a dependency loop is refused on choosing. */
 export function InsidePicker({ st, a, id, act, previewing }: Pick<PanelProps, 'st' | 'a' | 'id' | 'act' | 'previewing'>) {
   const here = st.items[id].parent ?? '';
-  const options = useMemo(() => parentChoices(st, a.K, true), [previewing ? null : st.items]);
+  const options = useMemo(() => parentChoices(st, a.kids, true), [previewing ? null : st.items]);
   return (
     <select
       aria-label="Inside"
@@ -60,7 +58,7 @@ export function InsidePicker({ st, a, id, act, previewing }: Pick<PanelProps, 's
 /** Asks for a second click, with the count. Moving away takes the question back. */
 export function DeleteButton({ st, a, id, act }: Pick<PanelProps, 'st' | 'a' | 'id' | 'act'>) {
   const [armed, setArmed] = useState(false);
-  const count = armed ? subtree(id, a.K).length : 0;
+  const count = armed ? subtree(id, a.kids).length : 0;
   return (
     <div class="tm-actions">
       <button class={`tm-del${armed ? ' tm-armed' : ''}`} title={`Delete ${st.items[id].title}. Its notes go to the trash`} onMouseLeave={() => setArmed(false)} onBlur={() => setArmed(false)} onClick={() => (armed ? act.remove(id) : setArmed(true))}>
@@ -81,7 +79,7 @@ export function Blocks({ st, a, id, act, previewing }: Pick<PanelProps, 'st' | '
       {blocked.map(d => (
         <div class="tm-li" key={d}>
           <Link id={d} st={st} act={act} />
-          <Dated d={a.by[d]?.start} />
+          <Dated d={a.results[d]?.start} />
           <button class="tm-x-btn" title="Stop blocking this" aria-label={`Stop blocking ${st.items[d].title}`} onClick={() => act.apply(removeDep(d, id))}>
             ×
           </button>

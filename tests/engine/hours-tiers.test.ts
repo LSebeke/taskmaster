@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addTier, analyze, editLog, ensureTiers, logHours, moveToTier, removeTier, setTotal } from '../../src/engine';
+import { addTier, analyze, editLog, ensureTiers, addLog, moveToTier, removeTier, setTotal } from '../../src/engine';
 import { state, task } from './helpers';
 
 describe('acceptance: priority levels', () => {
@@ -62,10 +62,10 @@ describe('acceptance: hours', () => {
   it('log, edit, delete on unstarted b', () => {
     const st = blocked();
     const b = st.items.b;
-    const start = analyze(st).by.b.start;
+    const start = analyze(st).results.b.start;
 
-    logHours(b, st.today, 3, st.today);
-    expect(analyze(st).by.b.start).toBe(start);
+    addLog(b, st.today, 3, st.today);
+    expect(analyze(st).results.b.start).toBe(start);
     expect(b.actualStart).toBeUndefined();
     expect([b.spent, b.left]).toEqual([3, 9]);
 
@@ -79,8 +79,8 @@ describe('acceptance: hours', () => {
 
   it('two logs on one day merge', () => {
     const st = blocked();
-    logHours(st.items.a, st.today, 1, st.today);
-    logHours(st.items.a, st.today, 2, st.today);
+    addLog(st.items.a, st.today, 1, st.today);
+    addLog(st.items.a, st.today, 2, st.today);
     expect(st.items.a.log).toEqual([{ d: st.today, h: 3 }]);
   });
 

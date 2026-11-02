@@ -1,11 +1,11 @@
-import { effDeps, leavesOf, workDays, type Analysis, type ItemResult, type State } from '../engine';
-import { fmtD, h1 } from './format';
+import { effDeps, leavesOf, subtree, workDays, type Analysis, type ItemResult, type State } from '../engine';
+import { fmtD, fmtH } from './format';
 
 /** Unfinished work this item still waits for, latest first. Drafts are ignored by the scheduler, so here too. */
 function waitingOn(st: State, a: Analysis, id: string): string | undefined {
-  return effDeps(st, id, a.K)
-    .filter(p => p !== id && !a.by[p]?.done && !a.by[p]?.draft)
-    .sort((x, y) => (a.by[y].end ?? Infinity) - (a.by[x].end ?? Infinity))[0];
+  return effDeps(st, id, a.kids)
+    .filter(p => p !== id && !a.results[p]?.done && !a.results[p]?.draft)
+    .sort((x, y) => (a.results[y].end ?? Infinity) - (a.results[x].end ?? Infinity))[0];
 }
 
 const waitName = (st: State, id: string) => {
@@ -15,7 +15,7 @@ const waitName = (st: State, id: string) => {
 
 /** Plain-language reason for an item's dates. */
 export function why(st: State, a: Analysis, id: string): string {
-  const b = a.by[id];
+  const b = a.results[id];
   const it = st.items[id];
   if (it.kind === 'ext') return `External: ${fmtD(it.pinS)} to ${fmtD(it.pinE)}. No project hours.`;
   if (b.draft) return 'Not scheduled. Give it hours, or add items inside it.';
@@ -28,24 +28,25 @@ export function why(st: State, a: Analysis, id: string): string {
   if (b.done) return `Finished ${fmtD(it.doneOn ?? b.end)}.`;
   if (it.pinS != null && it.pinE != null) {
     const days = Math.max(1, workDays(Math.max(it.pinS, st.today), it.pinE, st.settings));
-    return `Both ends pinned. Constant burn of ${h1(b.left / days)}h/day is reserved from capacity.`;
+    return `Both ends pinned. Constant burn of ${fmtH(b.left / days)}h/day is reserved from capacity.`;
   }
-  if (it.pinE != null) return `End pinned. Latest start that still makes it: ${fmtD(a.rel[id])}, given what runs in parallel.`;
-  if (it.pinS != null) return 'Start pinned. End follows from hours and what runs in parallel.';
-  if (b.idleBy && b.idleBy !== id) return `Blocked by capacity: ${st.items[b.idleBy].title} takes the hours first.`;
+  if (it.pinE != null) return `End pinned. Latest start that still makes it: ${fmtD(a.releaseDay[id])}, given what runs in parallel.`;
+  const blocked = b.idleBy && b.idleBy !== id ? `locked by capacity: ${st.items[b.idleBy].title} takes the hours first.` : null;
+  if (it.pinS != null) return blocked ? `Start pinned, but b${blocked}` : 'Start pinned. End follows from hours and what runs in parallel.';
+  if (blocked) return `B${blocked}`;
   const w = waitingOn(st, a, id);
   return w ? `Waits for ${waitName(st, w)}.` : 'Free to run now.';
 }
 
 /** Hover text: title first, then what the rail would say. */
 export function tooltipLines(st: State, a: Analysis, id: string): string[] {
-  const b = a.by[id];
+  const b = a.results[id];
   const it = st.items[id];
   const plan = st.plan[id];
   const lines = [it.title, `Forecast ${fmtD(b.start)} → ${fmtD(b.end)}`];
   if (plan) lines.push(`Plan ${fmtD(plan.start)} → ${fmtD(plan.end)}`);
-  if (it.kind === 'item') lines.push(`${h1(b.spent)}h spent, ${h1(b.left)}h left (${Math.round(b.pct * 100)}%)`);
-  if (it.kind !== 'ms' && !a.K[id]) lines.push(why(st, a, id));
+  if (it.kind === 'item') lines.push(`${fmtH(b.spent)}h spent, ${fmtH(b.left)}h left (${Math.round(b.pct * 100)}%)`);
+  if (it.kind !== 'ms' && !a.kids[id]) lines.push(why(st, a, id));
   return lines;
 }
 
@@ -56,7 +57,7 @@ export interface Status {
 }
 
 export function statusOf(st: State, a: Analysis, id: string): Status {
-  const b = a.by[id];
+  const b = a.results[id];
   const it = st.items[id];
   const plan = st.plan[id];
   if (b.end == null) return { tone: 'plain', title: 'Not scheduled yet', sub: 'Give it hours or add items inside it.' };
@@ -68,23 +69,19 @@ export function statusOf(st: State, a: Analysis, id: string): Status {
   return { tone: 'good', title: '✓ Inside the plan', sub: `Forecast ${fmtD(b.end)}${deadline}` };
 }
 
-function subtree(a: Analysis, id: string): string[] {
-  return [id, ...(a.K[id] ?? []).flatMap(c => subtree(a, c))];
-}
-
 /** Items the forecast has and the plan lacks, parents included. Externals never have a plan entry, and drafts have no dates. */
 export const countNotInPlan = (st: State, a: Analysis, scope: string | null): number =>
-  (scope ? subtree(a, scope) : Object.keys(st.items)).filter(i => !st.plan[i] && a.by[i]?.end != null && st.items[i].kind !== 'ext').length;
+  (scope ? subtree(scope, a.kids) : Object.keys(st.items)).filter(i => !st.plan[i] && a.results[i]?.end != null && st.items[i].kind !== 'ext').length;
 
 /** Child plans that outgrew this one, or null. */
 export function planGapText({ planGap, planGapH }: Pick<ItemResult, 'planGap' | 'planGapH'>): string | null {
-  const parts = [planGap ? `${planGap} working day${planGap > 1 ? 's' : ''}` : '', planGapH ? `${h1(planGapH)}h` : ''].filter(Boolean);
+  const parts = [planGap ? `${planGap} working day${planGap > 1 ? 's' : ''}` : '', planGapH ? `${fmtH(planGapH)}h` : ''].filter(Boolean);
   return parts.length ? `▲ Sub-level plans outgrew this plan by ${parts.join(' and ')}.` : null;
 }
 
 export function upcomingExternals(st: State, a: Analysis, scope: string | null): string[] {
-  const used = scope ? new Set(leavesOf(st, scope, a.K).flatMap(l => effDeps(st, l, a.K))) : null;
-  return (a.K[''] ?? [])
-    .filter(i => st.items[i].kind === 'ext' && !a.by[i]?.done && (!used || used.has(i)))
+  const used = scope ? new Set(leavesOf(st, scope, a.kids).flatMap(l => effDeps(st, l, a.kids))) : null;
+  return (a.kids[''] ?? [])
+    .filter(i => st.items[i].kind === 'ext' && !a.results[i]?.done && (!used || used.has(i)))
     .sort((x, y) => st.items[x].pinS! - st.items[y].pinS!);
 }

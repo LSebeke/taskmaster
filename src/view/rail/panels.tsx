@@ -1,8 +1,8 @@
 import { leavesOf, nextUp, rootOf, type Scope } from '../../engine';
 import { deleteLogEntry, editLogEntry, moveTask, setBudget, setDeadline, setHoursLeft, setPin, setScope, setTotal } from '../../store/edits';
 import { countNotInPlan, planGapText, upcomingExternals, why } from '../explain';
-import { fmtD, h1 } from '../format';
-import { DateField, Deps, EdgeSwitch, LogForm, NumField } from './fields';
+import { fmtD, fmtH } from '../format';
+import { DateField, Deps, EdgeSwitch, LogRow, NumField } from './fields';
 import { Blocks, DeleteButton, InsidePicker, NameField } from './item-fields';
 import { Card, Dated, Field, Link, Notes, StatusCard, Tiles, Todos, type PanelProps } from './parts';
 import { EstimateCard, ExternalEffect, MvpCard, TimerControl } from './signals';
@@ -15,12 +15,12 @@ const Back = ({ act }: Pick<PanelProps, 'act'>) => <button onClick={() => act.se
 
 /** The lists shared by a parent's overview and the top level. */
 function Lists({ st, a, scope, act }: { scope: string | null } & Pick<PanelProps, 'st' | 'a' | 'act'>) {
-  const leaves = scope ? new Set(leavesOf(st, scope, a.K)) : null;
+  const leaves = scope ? new Set(leavesOf(st, scope, a.kids)) : null;
   const conflicts = a.conflicts.filter(c => !leaves || c.id == null || leaves.has(c.id));
   const externals = upcomingExternals(st, a, scope);
   const next = nextUp(st, a, scope);
   const project = scope ? rootOf(st, scope) : null;
-  const stale = Object.keys(st.items).filter(i => a.by[i]?.stale && (!project || rootOf(st, i) === project));
+  const stale = Object.keys(st.items).filter(i => a.results[i]?.stale && (!project || rootOf(st, i) === project));
   return (
     <>
       {externals.length > 0 && <h3>External</h3>}
@@ -37,9 +37,9 @@ function Lists({ st, a, scope, act }: { scope: string | null } & Pick<PanelProps
         <div class="tm-next">
           {next.map(i => (
             <div class="tm-li" key={i}>
-              {a.by[i].crit && <span class="tm-tone-crit" title="On the critical chain">◆</span>}
+              {a.results[i].crit && <span class="tm-tone-crit" title="On the critical chain">◆</span>}
               <Link id={i} st={st} act={act} />
-              <span class="tm-num">{h1(a.by[i].left)}h</span>
+              <span class="tm-num">{fmtH(a.results[i].left)}h</span>
             </div>
           ))}
         </div>
@@ -59,7 +59,7 @@ function Lists({ st, a, scope, act }: { scope: string | null } & Pick<PanelProps
           {stale.map(i => (
             <div class="tm-li" key={i}>
               <Link id={i} st={st} act={act} />
-              <span class="tm-num">{a.by[i].stale}d old</span>
+              <span class="tm-num">{a.results[i].stale}d old</span>
             </div>
           ))}
         </div>
@@ -88,7 +88,7 @@ export function AllProjects({ st, a, roots, act }: Pick<PanelProps, 'st' | 'a' |
       <div class="tm-sub">{st.settings.weekly}h/week capacity</div>
       <h3>Projects</h3>
       {roots.map((r, i) => {
-        const b = a.by[r];
+        const b = a.results[r];
         return (
           <div class="tm-li" key={r}>
             <span class="tm-grow tm-link" onClick={() => act.select(r)}>
@@ -111,7 +111,7 @@ export function AllProjects({ st, a, roots, act }: Pick<PanelProps, 'st' | 'a' |
 /** A parent, selected or focused. */
 export function Overview({ st, a, id, act, readTodos, previewing, selected, focused }: PanelProps & { selected: boolean; focused: boolean }) {
   const it = st.items[id];
-  const b = a.by[id];
+  const b = a.results[id];
   const free = it.budget != null ? it.budget - b.spent - b.left : 0;
   const gap = planGapText(b);
   return (
@@ -125,7 +125,7 @@ export function Overview({ st, a, id, act, readTodos, previewing, selected, focu
         {!focused && <button onClick={() => act.focus(id)}>⤢ Focus chart</button>}
         <button onClick={act.openPlan}>Update plan…</button>
       </div>
-      {free > 0 && <Card tone="warn">▲ {h1(free)}h of budget are not in any item yet. The forecast ignores them, so finish dates look earlier than they will be.</Card>}
+      {free > 0 && <Card tone="warn">▲ {fmtH(free)}h of budget are not in any item yet. The forecast ignores them, so finish dates look earlier than they will be.</Card>}
       {gap && <Card tone="warn">{gap} This level's plan stays until you update it.</Card>}
       <NotInPlan st={st} a={a} scope={id} />
       {!it.parent && <MvpCard st={st} a={a} id={id} act={act} previewing={previewing} />}
@@ -162,10 +162,10 @@ export function Overview({ st, a, id, act, readTodos, previewing, selected, focu
 /** A task, draft or milestone. */
 export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps) {
   const it = st.items[id];
-  const b = a.by[id];
+  const b = a.results[id];
   const ms = it.kind === 'ms';
   const level = st.tiers.findIndex(t => t.includes(id));
-  const peers = level >= 0 ? st.tiers[level].filter(x => x !== id && a.by[x] && !a.by[x].done).length : 0;
+  const peers = level >= 0 ? st.tiers[level].filter(x => x !== id && a.results[x] && !a.results[x].done).length : 0;
   return (
     <>
       <Back act={act} />
@@ -188,7 +188,7 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
         {why(st, a, id)}
         {b.left > 0 && !b.done && (
           <div class="tm-sub">
-            Forecast {fmtD(b.start)} → {fmtD(b.end)}, avg {h1(b.burn ?? 0)}h/day
+            Forecast {fmtD(b.start)} → {fmtD(b.end)}, avg {fmtH(b.burn ?? 0)}h/day
           </div>
         )}
         {peers > 0 && <div class="tm-sub">Same priority as {peers} task(s), shares burn equally</div>}
@@ -227,9 +227,9 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
             <NumField label="Hours left" value={b.left} onCommit={h => h != null && act.apply(setHoursLeft(id, h))} />
           </Field>
           <Field label="Log hours">
-            <LogForm id={id} today={st.today} apply={act.apply} />
+            {b.draft ? <span class="tm-sub">Hours are logged on tasks only</span> : <LogRow id={id} today={st.today} apply={act.apply} />}
           </Field>
-          {!!it.log?.length && <h3>Logged ({h1(b.spent)}h)</h3>}
+          {!!it.log?.length && <h3>Logged ({fmtH(b.spent)}h)</h3>}
           {it.log?.map((l, i) => (
             <div class="tm-li" key={i}>
               <Dated d={l.d} />
@@ -284,7 +284,7 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
 
 export function ExternalPanel({ st, a, id, act, previewing }: Omit<PanelProps, 'readTodos'>) {
   const it = st.items[id];
-  const b = a.by[id];
+  const b = a.results[id];
   return (
     <>
       <Back act={act} />

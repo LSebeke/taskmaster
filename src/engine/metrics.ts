@@ -74,11 +74,11 @@ const NEXT_UP = 5;
 
 /** Unblocked tasks in tier order, critical first inside a level. Scope limits it to one item's tasks. */
 export function nextUp(st: State, a: Analysis, scope: string | null, limit = NEXT_UP): string[] {
-  const inside = scope ? new Set(leavesOf(st, scope, a.K)) : null;
-  const clear = (id: string) => effDeps(st, id, a.K).every(p => p === id || a.by[p]?.done || a.by[p]?.draft);
-  const crit = (id: string) => (a.by[id].crit ? 0 : 1);
+  const inside = scope ? new Set(leavesOf(st, scope, a.kids)) : null;
+  const clear = (id: string) => effDeps(st, id, a.kids).every(p => p === id || a.results[p]?.done || a.results[p]?.draft);
+  const crit = (id: string) => (a.results[id].crit ? 0 : 1);
   return st.tiers
-    .flatMap(level => level.filter(id => st.items[id] && (!inside || inside.has(id)) && !a.by[id]?.done && clear(id)).sort((x, y) => crit(x) - crit(y)))
+    .flatMap(level => level.filter(id => st.items[id] && (!inside || inside.has(id)) && !a.results[id]?.done && clear(id)).sort((x, y) => crit(x) - crit(y)))
     .slice(0, limit);
 }
 

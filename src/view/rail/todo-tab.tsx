@@ -1,7 +1,7 @@
 import { useRef, useState } from 'preact/hooks';
 import { leavesOf, rootOf } from '../../engine';
 import { addLevel, moveTask, removeLevel } from '../../store/edits';
-import { h1 } from '../format';
+import { fmtH } from '../format';
 import { toggleTodoOpen, type UiState } from '../ui-state';
 import { Todos, type PanelProps } from './parts';
 
@@ -44,7 +44,7 @@ interface RowProps extends Omit<TabProps, 'ui' | 'roots'> {
 
 function TaskRow({ st, a, id, act, readTodos, previewing, open, dragged, colour, onToggle, onDragStart, onDragEnd }: RowProps) {
   const it = st.items[id];
-  const b = a.by[id];
+  const b = a.results[id];
   const left = it.todos?.filter(t => !t.done).length ?? 0;
   return (
     <div class={`tm-td${dragged ? ' tm-td-src' : ''}`} data-task={id}>
@@ -59,7 +59,7 @@ function TaskRow({ st, a, id, act, readTodos, previewing, open, dragged, colour,
         </span>
         <span class="tm-num">
           {left > 0 && `☐${left} `}
-          {h1(b.left)}h · {h1(b.burn ?? 0)}h/d
+          {fmtH(b.left)}h · {fmtH(b.burn ?? 0)}h/d
         </span>
       </div>
       {open && <Todos st={st} a={a} id={id} act={act} readTodos={readTodos} previewing={previewing} />}
@@ -74,7 +74,7 @@ export function TodoTab({ st, a, ui, roots, act, readTodos, previewing }: TabPro
   const panel = useRef<HTMLDivElement>(null);
   const root = ui.focus ? rootOf(st, ui.focus) : null;
   const all = ui.todoAll || !root;
-  const inScope = all ? null : new Set(leavesOf(st, root, a.K));
+  const inScope = all ? null : new Set(leavesOf(st, root, a.kids));
   // A note can vanish mid-drag, and with it the row that would have ended the drag.
   const live = dragging && st.tiers.some(t => t.includes(dragging)) ? dragging : null;
   const from = live ? st.tiers.findIndex(t => t.includes(live)) : -1;
@@ -120,7 +120,7 @@ export function TodoTab({ st, a, ui, roots, act, readTodos, previewing }: TabPro
       </div>
       <div class="tm-sub tm-lists-intro">Order inside a level is yours and changes nothing. Dragging into another level changes who gets hours.</div>
       {st.tiers.map((level, i) => {
-        const open = level.filter(id => st.items[id] && a.by[id] && !a.by[id].done);
+        const open = level.filter(id => st.items[id] && a.results[id] && !a.results[id].done);
         const rows = inScope ? open.filter(id => inScope.has(id)) : open;
         const same = at?.level === i && from === i;
         const cross = at?.level === i && from !== i;

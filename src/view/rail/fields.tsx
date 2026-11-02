@@ -2,10 +2,10 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { dayOf, iso, type Day } from '../../engine';
 import { addDep, logHours, removeDep, type Edit } from '../../store/edits';
 import { depChoices } from '../deps';
-import { h1 } from '../format';
+import { fmtH } from '../format';
 import { Dated, Link, type PanelProps } from './parts';
 
-const text = (v: number | null | undefined) => (v == null ? '' : h1(v));
+const text = (v: number | null | undefined) => (v == null ? '' : fmtH(v));
 
 interface NumProps {
   value: number | null | undefined;
@@ -99,7 +99,7 @@ export function EdgeSwitch({ name, pin, auto, today, onPin }: EdgeProps) {
   );
 }
 
-export function LogForm({ id, today, apply }: { id: string; today: Day; apply(e: Edit): void }) {
+export function LogRow({ id, today, apply }: { id: string; today: Day; apply(e: Edit): void }) {
   const [hours, setHours] = useState('1');
   const [day, setDay] = useState(iso(today));
   const submit = () => {
@@ -124,7 +124,7 @@ export function Deps({ st, a, id, act, previewing }: Omit<PanelProps, 'readTodos
       {(it.deps ?? []).map(d => (
         <div class="tm-li" key={d}>
           <Link id={d} st={st} act={act} />
-          <Dated d={a.by[d]?.end} />
+          <Dated d={a.results[d]?.end} />
           <button class="tm-x-btn" title="Remove dependency" aria-label={`Remove dependency on ${st.items[d]?.title ?? d}`} onClick={() => act.apply(removeDep(id, d))}>
             ×
           </button>

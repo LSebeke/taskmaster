@@ -73,7 +73,7 @@ describe('next up', () => {
   it('critical first inside a level, levels stay in order', () => {
     // Chains are per project. In p, c runs to the end and d, 1h, is off the chain.
     const st = state({ a: task('a', 6), p: task('p', 0), d: task('d', 1, { parent: 'p' }), c: task('c', 60, { parent: 'p' }) }, [['a'], ['d', 'c']]);
-    const { by } = analyze(st);
+    const { results: by } = analyze(st);
     expect(by.c.crit).toBe(true);
     expect(by.d.crit).toBe(false);
     expect(titles(st)).toEqual(['a', 'c', 'd']);
@@ -115,18 +115,18 @@ describe('next up', () => {
 describe('stale', () => {
   it('counts from the start when hours left were never updated', () => {
     const st = state({ a: task('a', 6, { actualStart: D('2026-10-20') }) }, [['a']]);
-    expect(analyze(st).by.a.stale).toBe(13);
+    expect(analyze(st).results.a.stale).toBe(13);
   });
 
   it('follows the setting', () => {
     const st = state({ a: task('a', 6, { actualStart: D('2026-10-01'), touched: D('2026-10-31') }) }, [['a']]);
     st.settings.staleDays = 2;
-    expect(analyze(st).by.a.stale).toBe(2);
+    expect(analyze(st).results.a.stale).toBe(2);
   });
 
   it('a task not started is not stale', () => {
     const st = state({ a: task('a', 6, { touched: D('2026-10-01') }) }, [['a']]);
-    expect(analyze(st).by.a.stale).toBeUndefined();
+    expect(analyze(st).results.a.stale).toBeUndefined();
   });
 });
 

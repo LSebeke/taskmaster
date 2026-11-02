@@ -1,11 +1,11 @@
 import type { EventRef } from 'obsidian';
 import { dayOf, ensureTiers, type Day, type Item, type NewItem, type State, type Todo } from '../engine';
-import { awaitsStart, recordDates, setFolder, startTimer, stopTimer, timerHours, type Edit } from './edits';
+import { awaitsStart, recordDates, releaseParent, setFolder, startTimer, stopTimer, timerHours, type Edit } from './edits';
 import { notePatches } from './patch';
-import { movedPath, type StoreApp, type StoreWarning } from './ports';
+import { attemptAll, movedPath, mover, type StoreApp, type StoreWarning } from './ports';
 import { inOrder, projectNotes } from './project';
 import { fixLinks, staleLinks, type LinkFix } from './relink';
-import { defaultStateFile, parseStateFile, serializeState, STATE_BAD, STATE_PATH, STATE_TMP, writeStateAtomically } from './state-file';
+import { assignParts, changedParts, defaultStateFile, liveParts, parseStateFile, partsOf, pathsKey, rewritePaths, serializeState, STATE_BAD, STATE_PATH, STATE_TMP, writeStateAtomically, type Kept, type StateParts } from './state-file';
 import { Structure, type Done } from './structure';
 import { addToText, parseTodos, removeFromText, tickInText } from './todos';
 import { NoteWriter, type Patch } from './writer';
@@ -56,56 +56,9 @@ const folderPrefix = (f: string) => {
   return t ? `${t}/` : '';
 };
 
-/** What state.json holds, as engine values. */
-interface StateParts {
-  tiers: State['tiers'];
-  plan: State['plan'];
-  planHistory: State['planHistory'];
-  order: State['order'];
-  weekly: number;
-  weekCap: State['settings']['weekCap'];
-  holidays: Day[];
-  staleDays: number;
-  timer: State['timer'];
-  folder: State['folder'];
-}
-
-const partsOf = ({ tiers, plan, planHistory, order, timer, folder, settings: { weekly, weekCap, holidays, staleDays } }: State): StateParts =>
-  structuredClone({ tiers, plan, planHistory, order, timer, folder, weekly, weekCap, holidays, staleDays });
-
-function assignParts(st: State, p: Partial<StateParts>) {
-  const { weekly, weekCap, holidays, staleDays, ...rest } = p;
-  Object.assign(st, rest);
-  if ('staleDays' in p) st.settings.staleDays = staleDays!;
-  if ('weekly' in p) st.settings.weekly = weekly!;
-  if ('weekCap' in p) st.settings.weekCap = weekCap;
-  if ('holidays' in p) st.settings.holidays = holidays!;
-}
-
-/** Parts of `before` that differ from `after`. */
-function changedParts(before: StateParts, after: StateParts): Partial<StateParts> {
-  const keys = Object.keys(before) as (keyof StateParts)[];
-  const changed = keys.filter(k => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
-  return Object.fromEntries(changed.map(k => [k, before[k]]));
-}
-
-/** Plan entries, history and levels are keyed by note path. A folder rename moves everything under it. */
-function rewritePaths(p: Pick<Partial<StateParts>, 'tiers' | 'plan' | 'planHistory' | 'order' | 'timer'>, from: string, to: string) {
-  const move = (x: string) => movedPath(x, from, to);
-  const moveKeys = <T>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [move(k), v]));
-  if (p.tiers) p.tiers = p.tiers.map(level => level.map(move));
-  if (p.plan) p.plan = moveKeys(p.plan);
-  if (p.order) p.order = p.order.map(move);
-  if (p.timer) p.timer = { ...p.timer, id: move(p.timer.id) };
-  for (const h of p.planHistory ?? []) {
-    h.ids = h.ids.map(move);
-    h.before = moveKeys(h.before);
-  }
-}
-
 /** Items hold paths too, and stay usable between a rename and the next projection. Returns whether any moved. */
 function rekeyItems(st: State, from: string, to: string): boolean {
-  const move = (x: string) => movedPath(x, from, to);
+  const move = mover(from, to);
   const entries = Object.entries(st.items);
   if (!entries.some(([id]) => move(id) !== id)) return false;
   st.items = Object.fromEntries(
@@ -153,7 +106,7 @@ export class TaskmasterStore {
   /** File work and undo run one at a time, each from the paths the last one left. */
   private queue: Promise<unknown> = Promise.resolve();
   /** While above 0, changes wait for the end of the file work behind them. */
-  private hush = 0;
+  private holding = 0;
   /** Renames, oldest first. */
   private aliases: [string, string][] = [];
   private moveListeners = new Set<(from: string, to: string) => void>();
@@ -166,6 +119,12 @@ export class TaskmasterStore {
   /** Links that may still name a path their note has left. */
   private fixes: LinkFix[] = [];
   private fixTimer: ReturnType<typeof setTimeout> | null = null;
+  /** state.json parts this version could not use, written back as they came. */
+  private kept: Kept | undefined;
+  /** state.json is unreadable and could not be copied, so nothing may overwrite it. */
+  private stateHeld = false;
+  /** Parents of notes deleted since the last recompute. They may have just lost their last child. */
+  private orphans = new Set<string>();
 
   constructor(
     private app: StoreApp,
@@ -248,16 +207,15 @@ export class TaskmasterStore {
     return this.apply(startTimer(id, this.now()));
   }
 
-  /** Logs the time run. `level` is the priority level the task was in, as a log can finish it. Null with nothing running. */
-  stopTimer(): { id: string; hours: number; level: number } | null {
+  /** Logs the time run. Null with nothing running. */
+  stopTimer(): { id: string; hours: number } | null {
     const t = this.st.timer;
     if (!t) return null;
     const running = this.timer;
     const now = this.now();
-    const level = this.st.tiers.findIndex(x => x.includes(t.id));
     const hours = timerHours(this.st, now);
     this.apply(stopTimer(now));
-    return running ? { id: running.id, hours, level } : null;
+    return running ? { id: running.id, hours } : null;
   }
 
   /** Notes linking to an item that are not its children, its dependents or its own tm-notes. */
@@ -317,10 +275,10 @@ export class TaskmasterStore {
     if (raw != null) {
       const { file, warnings, broken } = parseStateFile(raw);
       this.fileWarnings.push(...warnings);
-      if (broken) await this.app.vault.adapter.write(STATE_BAD, raw).catch(() => undefined);
-      const { weekly, weekCap, holidays, staleDays, ...rest } = file;
-      Object.assign(this.st, rest);
-      Object.assign(this.st.settings, { weekly, weekCap, holidays, staleDays: staleDays ?? this.st.settings.staleDays });
+      if (broken) await this.keepAside(this.app.vault.adapter.write(STATE_BAD, raw));
+      const { kept, staleDays, ...parts } = file;
+      this.kept = kept;
+      assignParts(this.st, { ...parts, staleDays: staleDays ?? this.st.settings.staleDays });
     }
     this.hookEvents();
     this.clock = setInterval(() => {
@@ -358,7 +316,7 @@ export class TaskmasterStore {
       const step = this.stack.pop();
       if (!step) return null;
       const failed = await this.reverse(step);
-      this.recompute(failed ? `⚠ Undo stopped: ${failed}` : `Undid: ${step.label}`);
+      this.recompute(failed ? `⚠ Undo incomplete: ${failed}` : `Undid: ${step.label}`);
       return step.label;
     });
   }
@@ -378,9 +336,14 @@ export class TaskmasterStore {
       if (steps.length) {
         this.stack.push({
           label,
-          undo: async () => {
-            while (steps.length) await steps.pop()!.undo();
-          },
+          undo: () =>
+            attemptAll(
+              [...steps].reverse().map(s => () => {
+                // Off the list first: renames it causes must reach only the steps still to run.
+                steps.splice(steps.indexOf(s), 1);
+                return s.undo();
+              }),
+            ),
           moved: (from, to) => steps.forEach(s => s.moved?.(from, to)),
         });
       }
@@ -413,7 +376,7 @@ export class TaskmasterStore {
     this.changeTodos(
       id,
       `Added to-do ${t}`,
-      { list: todos => [...todos, { t: '', done: false }], text: x => addToText(x, t) },
+      { list: todos => [...todos, { text: '', done: false }], text: x => addToText(x, t) },
       { list: todos => todos.filter((_, i) => i !== index), text: x => removeFromText(x, index, t) },
     );
     return true;
@@ -456,14 +419,15 @@ export class TaskmasterStore {
   private async atomic(label: string, fn: () => Promise<void>): Promise<string | null> {
     const mark = this.stack.length;
     let failed: string | null = null;
-    this.hush++;
+    this.holding++;
     try {
       await this.group(label, fn);
     } catch (e) {
       failed = String(e);
-      if (this.stack.length > mark) await this.reverse(this.stack.pop()!);
+      const left = this.stack.length > mark ? await this.reverse(this.stack.pop()!) : null;
+      if (left) failed += `, and undoing it stopped short: ${left}`;
     } finally {
-      this.hush--;
+      this.holding--;
     }
     this.recompute(failed ? `⚠ ${label}: ${failed}` : label);
     return failed;
@@ -472,7 +436,7 @@ export class TaskmasterStore {
   /** Runs one undo step with listeners held back. Returns what went wrong, if anything. */
   private async reverse(step: UndoStep): Promise<string | null> {
     this.undoing = step;
-    this.hush++;
+    this.holding++;
     try {
       await step.undo();
       return null;
@@ -480,7 +444,7 @@ export class TaskmasterStore {
       this.fileWarnings.push({ path: step.label, msg: `Could not undo: ${String(e)}` });
       return String(e);
     } finally {
-      this.hush--;
+      this.holding--;
       this.undoing = null;
     }
   }
@@ -506,8 +470,19 @@ export class TaskmasterStore {
       // A swap that never finished: the new file is whole.
       return (await adapter.exists(STATE_TMP)) ? await adapter.read(STATE_TMP) : null;
     } catch (e) {
-      this.fileWarnings.push({ path: STATE_PATH, msg: `Could not read: ${String(e)}. Using defaults` });
+      this.fileWarnings.push({ path: STATE_PATH, msg: `Could not read: ${String(e)}. Using defaults, a copy stays at ${STATE_BAD}` });
+      await this.keepAside(adapter.copy(STATE_PATH, STATE_BAD));
       return null;
+    }
+  }
+
+  /** A state.json the store could not take in is the only copy of its data: without a spare, nothing may replace it. */
+  private async keepAside(copy: Promise<void>) {
+    try {
+      await copy;
+    } catch (e) {
+      this.stateHeld = true;
+      this.fileWarnings.push({ path: STATE_BAD, msg: `Could not keep a copy: ${String(e)}. Levels, plans and settings will not be saved over ${STATE_PATH}` });
     }
   }
 
@@ -594,7 +569,8 @@ export class TaskmasterStore {
   private writeState(): Promise<void> {
     if (this.stateTimer != null) clearTimeout(this.stateTimer);
     this.stateTimer = null;
-    const json = serializeState(this.st);
+    if (this.stateHeld) return this.stateBusy;
+    const json = serializeState(this.st, this.kept);
     this.stateBusy = this.stateBusy
       .then(() => writeStateAtomically(this.app.vault.adapter, json))
       .catch((e: unknown) => this.writeFailed(STATE_PATH, e));
@@ -616,6 +592,8 @@ export class TaskmasterStore {
     hook(
       metadataCache,
       metadataCache.on('deleted', file => {
+        const parent = this.st.items[file.path]?.parent;
+        if (parent) this.orphans.add(parent);
         this.writes.drop(file.path);
         this.todoOverlay.delete(file.path);
         this.schedule();
@@ -625,8 +603,7 @@ export class TaskmasterStore {
       vault,
       vault.on('rename', (file, oldPath) => {
         // At once, not at the recompute: a second rename may follow within the window.
-        const keyed = () => JSON.stringify([this.st.tiers, this.st.plan, this.st.planHistory, this.st.timer]);
-        const before = keyed();
+        const before = pathsKey(this.st);
         this.queueLinkFixes(oldPath, file.path);
         rewritePaths(this.st, oldPath, file.path);
         const items = rekeyItems(this.st, oldPath, file.path);
@@ -636,7 +613,7 @@ export class TaskmasterStore {
         this.todoOverlay = new Map([...this.todoOverlay].map(([p, t]) => [movedPath(p, oldPath, file.path), t]));
         for (const s of this.stack) s.moved?.(oldPath, file.path);
         this.undoing?.moved?.(oldPath, file.path);
-        if (keyed() !== before) this.saveState();
+        if (pathsKey(this.st) !== before) this.saveState();
         if (items) for (const l of this.moveListeners) l(oldPath, file.path);
         this.schedule();
       }),
@@ -645,7 +622,7 @@ export class TaskmasterStore {
 
   /** Obsidian's own link update may be on, off or still running, so the check waits a write window. */
   private queueLinkFixes(from: string, to: string) {
-    const move = (x: string) => movedPath(x, from, to);
+    const move = mover(from, to);
     this.fixes = [...this.fixes.map(f => ({ ...f, ref: move(f.ref), to: move(f.to) })), ...staleLinks(this.st, from, to)];
     if (this.fixes.length) this.fixTimer ??= setTimeout(() => this.repairLinks(), this.writeMs);
   }
@@ -682,14 +659,23 @@ export class TaskmasterStore {
 
   private recompute(label?: string) {
     this.project();
+    this.settleOrphans();
     this.publish(label);
   }
 
+  /** Not undoable: nothing here can bring back a note someone deleted. */
+  private settleOrphans() {
+    if (this.pending || !this.orphans.size) return;
+    const ids = [...this.orphans].map(id => this.follow(id));
+    this.orphans.clear();
+    for (const id of ids) this.stage(releaseParent(id));
+  }
+
   private publish(label?: string) {
-    if (this.hush) return;
+    if (this.holding) return;
     this.recordDatesSoon();
-    const { items, tiers, plan, planHistory, order, today, settings, timer, folder } = this.st;
-    const now = JSON.stringify([items, tiers, plan, planHistory, order, today, settings, timer, folder, this.warnings]);
+    const { items, today } = this.st;
+    const now = JSON.stringify([items, today, liveParts(this.st), this.warnings]);
     if (now === this.seen) return;
     this.seen = now;
     for (const l of this.listeners) l(this.st, label);

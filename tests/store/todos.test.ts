@@ -79,11 +79,11 @@ describe('adding a to-do', () => {
     await boot();
     expect(store.addTodo(A, '  Three ')).toBe(true);
     expect(openCount()).toBe(2);
-    expect(store.state.items[A].todos!.at(-1)).toEqual({ t: '', done: false });
+    expect(store.state.items[A].todos!.at(-1)).toEqual({ text: '', done: false });
     expect(await store.readTodos(A)).toEqual([
-      { t: 'One', done: false },
-      { t: 'Two', done: true },
-      { t: 'Three', done: false },
+      { text: 'One', done: false },
+      { text: 'Two', done: true },
+      { text: 'Three', done: false },
     ]);
     await passWrite();
     expect(bodyOf()).toBe('Intro\n\n- [ ] One\n- [x] Two\n- [ ] Three\n\nOutro\n');
@@ -113,7 +113,7 @@ describe('adding a to-do', () => {
     store.addTodo(A, 'First');
     await passWrite();
     expect(bodyOf()).toBe(`${body}- [ ] First\n`);
-    expect(await store.readTodos(A)).toEqual([{ t: 'First', done: false }]);
+    expect(await store.readTodos(A)).toEqual([{ text: 'First', done: false }]);
   });
 
   it('keeps the line endings of the note', async () => {

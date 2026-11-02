@@ -99,10 +99,10 @@ export function perfSeed({ tasks = Infinity, items = Infinity, endPinned = 0, we
   const want = Math.round(keyed.length * endPinned);
   for (let i = 0; i < want && free.length; i++) {
     const id = free[Math.floor((i * free.length) / want)];
-    const end = a.by[id].end ?? today + 300;
+    const end = a.results[id].end ?? today + 300;
     all[id].pinE = Math.min(end + 5 + (i % DAY_SPREAD), today + 700);
   }
   const final = analyze(st);
-  for (const id in final.by) st.plan[id] = snapshot(final, st, id);
+  for (const id in final.results) st.plan[id] = snapshot(final, st, id);
   return st;
 }
