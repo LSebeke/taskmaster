@@ -17,6 +17,10 @@ const { vault, pathOf } = vaultFrom(seeded);
 vault.echoMs = 15;
 if (!perf && !params.has('mini') && !params.has('empty') && !params.has('big')) vault.add('Notes/Bench report.md', undefined, undefined, 'See [[CAN stack port]].');
 
+// As when Obsidian restores a view: it can open before the plugin's stylesheet applies.
+const sheet = document.querySelector<HTMLLinkElement>('link[rel=stylesheet]')!;
+if (params.has('lateCss')) sheet.disabled = true;
+
 const app = new FakeApp();
 app.vault = vault.app.vault;
 let skew = 0;
@@ -86,6 +90,7 @@ void store.load().then(async () => {
       commands: list,
       command: (id: string) => list.find(c => c.id === id)!.run(),
       notices,
+      showStyles: () => void (sheet.disabled = false),
       /** Moves the store's clock on. */
       skew: (ms: number) => (skew += ms),
       openSettings: () => {

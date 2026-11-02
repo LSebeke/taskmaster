@@ -115,7 +115,7 @@ export function placeError(st: State, id: string, parent: string | null): string
   if (it.kind === 'ms' && !parent) return 'A milestone needs a parent.';
   if (P?.kind === 'ms') return 'Milestones cannot have children.';
   if (P?.kind === 'ext') return 'External items cannot have children.';
-  for (let i = parent; i; i = st.items[i].parent) if (i === id) return 'An item cannot move inside itself.';
+  for (let i = parent; i; i = st.items[i]?.parent ?? null) if (i === id) return 'An item cannot move inside itself.';
   return null;
 }
 

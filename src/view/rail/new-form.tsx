@@ -60,8 +60,8 @@ export function NewForm({ st, a, form, act }: Props) {
   const P = parent ? st.items[parent] : null;
   const firstChildLevel = parent && !a.K[parent] ? st.tiers.findIndex(t => t.includes(parent)) : -1;
   const level = tier ?? (firstChildLevel >= 0 ? firstChildLevel : st.tiers.length - 1);
-  const parents = useMemo(() => parentChoices(st, a.K), [st, a]);
-  const choices = useMemo(() => newDepChoices(st, parent, deps), [st, parent, deps]);
+  const parents = useMemo(() => parentChoices(st, a.K), [st.items, a]);
+  const choices = useMemo(() => newDepChoices(st, parent, deps), [st.items, parent, deps]);
   const last = form.last && st.items[form.last] ? st.items[form.last] : null;
   const convert = budgetNote(P, !!(parent && a.K[parent]));
 

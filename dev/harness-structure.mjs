@@ -276,6 +276,19 @@ export async function structureChecks({ open, shoot, check, rowByTitle, railTitl
       await undo(page);
     });
 
+    await check('a panel that stays open follows a row moving elsewhere: its Inside picker has the new path', async () => {
+      await select(page, 'Firmware');
+      await dragRow(page, 'CAN stack port', 'Runbook', 0.5);
+      await drop(page);
+      assert.equal(await railTitle(page), 'Firmware');
+      const values = await page.locator('.tm-rail').getByLabel('Inside').locator('option').evaluateAll(els => els.map(e => e.value));
+      assert.ok(values.includes(await idOf(page, 'Runbook')), values.join());
+      assert.equal(await page.locator('.tm-row', { hasText: 'Firmware' }).count(), 1, 'the view fell over');
+      await undo(page);
+      await page.locator('.tm-rail button', { hasText: '‹ Back' }).first().click().catch(() => undefined);
+      await page.keyboard.press('Escape');
+    });
+
     await check('a move drops a project at the top level and leaves plans alone', async () => {
       const plan = await page.evaluate(() => JSON.stringify(Object.values(window.tm.store.state.plan)));
       await dragRow(page, 'Runbook', 'Sensor Gateway v2', 0.1);

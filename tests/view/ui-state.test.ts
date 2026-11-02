@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultUi, escape, goUp, layers, pruneUi, setFocus, toggleCollapsed, toggleHidden, type UiState } from '../../src/view/ui-state';
+import { defaultUi, escape, goUp, layers, openForm, pruneUi, rekeyUi, setFocus, toggleCollapsed, toggleHidden, type UiState } from '../../src/view/ui-state';
 import { state, task } from '../engine/helpers';
 
 const st = state({ p: task('p', 0), 'p.g': task('g', 0, { parent: 'p' }), 'p.g.t': task('t', 8, { parent: 'p.g' }), q: task('q', 8) }, [['p.g.t', 'q']]);
@@ -80,5 +80,62 @@ describe('layers', () => {
   it('reads each combination', () => {
     expect(layers({ ...defaultUi(), plan: 'ghost', fc: 'solid' })).toEqual({ solid: 'fc', ghost: 'plan' });
     expect(layers({ ...defaultUi(), plan: 'off', fc: 'solid' })).toEqual({ solid: 'fc', ghost: null });
+  });
+});
+
+describe('ids the state no longer has count as none', () => {
+  const gone = 'Projects/gone.md';
+
+  it('Up from a focus that went away goes to the top', () => {
+    expect(goUp({ ...defaultUi(), focus: gone }, st).focus).toBeNull();
+  });
+
+  it('the add form ignores a selection that went away', () => {
+    const ui = openForm({ ...defaultUi(), sel: gone, focus: 'p' }, st, {}, 'item');
+    expect(ui.form?.parent).toBe('p');
+  });
+
+  it('pruning clears every kind of reference', () => {
+    const ui = pruneUi(
+      {
+        ...defaultUi(),
+        sel: gone,
+        focus: gone,
+        collapsed: new Set([gone, 'p']),
+        hidden: new Set([gone]),
+        todoOpen: new Set([gone, 'q']),
+        form: { kind: 'item', parent: gone, last: gone, added: [], nonce: 1 },
+      },
+      st,
+    );
+    expect(ui).toMatchObject({ sel: null, focus: null, form: { parent: null, last: null } });
+    expect([...ui.collapsed]).toEqual(['p']);
+    expect([...ui.hidden]).toEqual([]);
+    expect([...ui.todoOpen]).toEqual(['q']);
+  });
+
+  it('pruning a clean state changes nothing, so nothing rebuilds', () => {
+    const ui = { ...defaultUi(), sel: 'q', collapsed: new Set(['p']) };
+    expect(pruneUi(ui, st)).toBe(ui);
+  });
+});
+
+describe('a move rekeys everything the view holds', () => {
+  it('note and folder renames both reach selection, focus, form, collapsed, hidden and open to-dos', () => {
+    const ui = rekeyUi(
+      {
+        ...defaultUi(),
+        sel: 'a/x.md',
+        focus: 'a/x.md',
+        collapsed: new Set(['a/x.md']),
+        hidden: new Set(['a/x.md']),
+        todoOpen: new Set(['a/x.md']),
+        form: { kind: 'item', parent: 'a/x.md', last: 'a/x.md', added: [], nonce: 1 },
+      },
+      'a',
+      'b',
+    );
+    expect(ui).toMatchObject({ sel: 'b/x.md', focus: 'b/x.md', form: { parent: 'b/x.md', last: 'b/x.md' } });
+    expect([...ui.collapsed, ...ui.hidden, ...ui.todoOpen]).toEqual(['b/x.md', 'b/x.md', 'b/x.md']);
   });
 });

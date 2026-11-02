@@ -33,7 +33,7 @@ export function NameField({ value, onCommit }: { value: string; onCommit(title: 
 /** The tree. What a move cannot do from the shape of it is disabled; a dependency loop is refused on choosing. */
 export function InsidePicker({ st, a, id, act, previewing }: Pick<PanelProps, 'st' | 'a' | 'id' | 'act' | 'previewing'>) {
   const here = st.items[id].parent ?? '';
-  const options = useMemo(() => parentChoices(st, a.K, true), [previewing ? null : st]);
+  const options = useMemo(() => parentChoices(st, a.K, true), [previewing ? null : st.items]);
   return (
     <select
       aria-label="Inside"
@@ -75,7 +75,7 @@ export function Blocks({ st, a, id, act, previewing }: Pick<PanelProps, 'st' | '
   const blocked = Object.keys(st.items)
     .filter(i => st.items[i].deps?.includes(id))
     .sort((x, y) => st.items[x].title.localeCompare(st.items[y].title));
-  const groups = useMemo(() => blockChoices(st, id), [id, previewing ? null : st]);
+  const groups = useMemo(() => blockChoices(st, id), [id, previewing ? null : st.items]);
   return (
     <>
       {blocked.map(d => (

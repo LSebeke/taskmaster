@@ -10,6 +10,7 @@ import {
   mvp,
   moveError,
   moveItem,
+  placeError,
   removeItem,
   setTotal,
   validateNew,
@@ -377,5 +378,12 @@ describe('addItem with a given id', () => {
     expect(addItem(st, { ...item, title: 'C', parent: 'p', hours: 3, id: 'Projects/P/C.md' })).toBe('Projects/P/C.md');
     expect(st.items['Projects/P/C.md'].parent).toBe('p');
     expect(st.tiers).toEqual([['p', 'Projects/P/C.md']]);
+  });
+});
+
+describe('placeError with a parent the state no longer has', () => {
+  it('does not walk off the tree', () => {
+    const st = state({ a: task('a', 8) }, [['a']]);
+    expect(placeError(st, 'a', 'gone')).toBeNull();
   });
 });

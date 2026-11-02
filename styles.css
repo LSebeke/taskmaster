@@ -205,6 +205,7 @@
 
 .tm-timer{display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
 .tm-root .tm-timer button{padding:0 7px;font-size:11px}
+.tm-guard{padding:8px 10px;color:var(--tm-crit)}
 .tm-mvp .tm-li{padding:2px 0}
 .tm-linked-from{margin-top:6px}
 

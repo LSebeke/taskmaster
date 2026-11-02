@@ -1,4 +1,4 @@
-import { render } from 'preact';
+import { render, type ComponentChild } from 'preact';
 import { analyze, isoWeekKey, type Analysis, type NewItem, type RunningTimer, type State, type Todo } from '../engine';
 import type { Done } from '../store';
 import { linkNote, setWeekCapacity, setWeekly, updatePlan, type Edit } from '../store/edits';
@@ -11,9 +11,10 @@ import { dotAt, forecastBar } from './gantt/drag';
 import { Gestures, type GestureHost, type Hot, type Spot } from './gantt/gestures';
 import { hitTest } from './gantt/hit';
 import { buildLoad, LOAD_DAYS, loadWeekAt, type Load, type LoadWeek } from './gantt/load';
-import { readPalette, type Palette } from './gantt/palette';
+import { readPalette, stylesApplied, type Palette } from './gantt/palette';
 import { chartSpan, clampPpd, makeScale, zoomAround, type TimeScale } from './gantt/scale';
 import { buildScene, projectRoots, type Bar, type Scene } from './gantt/scene';
+import { Guard } from './guard';
 import { Hierarchy } from './hierarchy';
 import type { NotePick } from './note-picker';
 import { HistoryDialog, PlanDialogBox } from './plan-dialog';
@@ -95,7 +96,8 @@ export class GanttApp {
   /** Length of the chart. */
   private days = 0;
   private roots: string[] = [];
-  private pal: Palette;
+  private pal!: Palette;
+  private palRaf = 0;
   private message = '';
   private centred = false;
   private raf = 0;
@@ -152,7 +154,7 @@ export class GanttApp {
     this.tip = div(this.root, 'tm-tip');
     this.dialog = div(this.root, 'tm-dialog-host');
 
-    this.pal = readPalette(this.root);
+    this.takePalette();
     this.a = this.compute();
     this.gestures = new Gestures(this.gestureHost());
     this.rowDrag = new RowDrag(this.rowDragHost());
@@ -173,6 +175,7 @@ export class GanttApp {
     this.resize.disconnect();
     clearInterval(this.clock);
     cancelAnimationFrame(this.raf);
+    cancelAnimationFrame(this.palRaf);
     for (const host of [this.top, this.legend, this.treeHead, this.treeFoot, this.rail, this.status, this.overlay, this.dialog]) render(null, host);
     this.root.remove();
   }
@@ -196,8 +199,30 @@ export class GanttApp {
   }
 
   refreshTheme() {
-    this.pal = readPalette(this.root);
+    this.takePalette();
     this.paint();
+  }
+
+  /** Reads the colours, and keeps looking frame by frame while the stylesheet has yet to apply. */
+  private takePalette() {
+    this.pal = readPalette(this.root);
+    if (this.palRaf || stylesApplied(this.root)) return;
+    const wait = () => {
+      if (!stylesApplied(this.root)) {
+        this.palRaf = requestAnimationFrame(wait);
+        return;
+      }
+      this.palRaf = 0;
+      this.refreshTheme();
+      // Without the stylesheet the chart had no width to centre in.
+      this.centreToday();
+    };
+    this.palRaf = requestAnimationFrame(wait);
+  }
+
+  /** One part of the view. A render error stays in its part: unguarded, it leaves Preact's DOM half done. */
+  private draw(part: ComponentChild, host: HTMLElement) {
+    render(<Guard>{part}</Guard>, host);
   }
 
   /** Links on the chart, for checks that a canvas cannot answer. */
@@ -419,7 +444,7 @@ export class GanttApp {
   }
 
   private renderStatus() {
-    render(
+    this.draw(
       <StatusBar
         st={this.st}
         a={this.a}
@@ -473,6 +498,7 @@ export class GanttApp {
 
   /** Everything derived from data and rows. Holds the same days on screen if the chart's start moves. */
   private rebuild() {
+    this.ui = pruneUi(this.ui, this.st);
     const { st, a, ui } = this;
     this.rows = buildRows(st, a, ui);
     this.roots = projectRoots(st, a);
@@ -498,6 +524,7 @@ export class GanttApp {
   }
 
   private renderChrome() {
+    this.ui = pruneUi(this.ui, this.st);
     const { st, a, ui, roots } = this;
     const { show } = ui;
     const target = planTarget(st, a, ui);
@@ -510,7 +537,7 @@ export class GanttApp {
     flag('tm-no-load', !show.load);
     flag('tm-no-legend', !show.legend);
 
-    render(
+    this.draw(
       <TopBar
         st={st}
         ui={ui}
@@ -538,8 +565,8 @@ export class GanttApp {
       />,
       this.top,
     );
-    render(<Legend st={st} a={a} ui={ui} />, this.legend);
-    render(
+    this.draw(<Legend st={st} a={a} ui={ui} />, this.legend);
+    this.draw(
       <TreeHead
         st={st}
         ui={ui}
@@ -548,8 +575,8 @@ export class GanttApp {
       />,
       this.treeHead,
     );
-    render(<TreeFoot st={st} roots={roots} />, this.treeFoot);
-    render(
+    this.draw(<TreeFoot st={st} roots={roots} />, this.treeFoot);
+    this.draw(
       <Rail
         st={st}
         a={a}
@@ -601,7 +628,7 @@ export class GanttApp {
   private renderDialog() {
     const { st, a, ui } = this;
     const close = () => this.setUi({ ...this.ui, planDlg: null, historyOpen: false });
-    render(
+    this.draw(
       ui.planDlg ? (
         <PlanDialogBox
           st={st}
@@ -623,7 +650,7 @@ export class GanttApp {
   private renderWeekEdit() {
     const week = this.ui.weekEdit;
     const row = week != null ? this.load.weeks.find(w => w.week === week) : undefined;
-    render(
+    this.draw(
       row ? (
         <WeekEdit
           key={week}

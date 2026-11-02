@@ -174,10 +174,12 @@ export class FakeObsidian {
         n.disk = fm;
         this.echoLater(file.path);
       },
+      // As Obsidian: nothing has happened when the call returns. The events fire before it resolves.
       renameFile: async (file: FakeFile, newPath: string) => {
         if (this.notes.has(newPath) || this.folders.has(newPath)) throw new Error('Destination file already exists!');
         const dir = parentOf(newPath);
         if (dir && !this.folders.has(dir)) throw new Error(`No folder ${dir}`);
+        await Promise.resolve();
         const links = this.linksTo(file.path);
         if (this.notes.has(file.path)) this.rename(file.path, newPath);
         else this.renameFolder(file.path, newPath);
@@ -186,15 +188,14 @@ export class FakeObsidian {
       trashFile: async (file: FakeFile) => {
         this.trashed.push(file.path);
         if (this.notes.has(file.path)) return this.remove(file.path);
-        if (this.children(file.path).length) throw new Error('Fake: trash notes first');
-        this.folders.delete(file.path);
+        this.removeFolder(file.path);
       },
       getNewFileParent: () => this.folder(this.newNotesFolder) ?? { path: '/', name: '', children: [] },
     },
     metadataCache: {
       resolvedLinks: new Proxy({}, { ownKeys: () => this.linkSources(), get: (_, k) => this.linksFrom(String(k)), getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }) }),
       getFileCache: (file: FakeFile) => this.notes.get(file.path)?.cache ?? null,
-      getFirstLinkpathDest: (linkpath: string) => this.resolve(linkpath),
+      getFirstLinkpathDest: (linkpath: string, source: string) => this.resolve(linkpath, source),
       fileToLinktext: (file: FakeFile) => {
         const same = [...this.notes.values()].filter(n => n.file.basename === file.basename);
         return same.length > 1 ? file.path.replace(/\.md$/, '') : file.basename;
@@ -228,7 +229,7 @@ export class FakeObsidian {
     const out: Record<string, number> = {};
     const text = JSON.stringify(n?.cache?.frontmatter ?? {}) + (n?.body ?? '');
     for (const m of text.matchAll(/\[\[([^\]|#]+)/g)) {
-      const to = this.resolve(m[1])?.path;
+      const to = this.resolve(m[1], source)?.path;
       if (to) out[to] = (out[to] ?? 0) + 1;
     }
     return out;
@@ -255,14 +256,14 @@ export class FakeObsidian {
   /** Notes with a link leading to a path or under it, and the keys holding it. */
   private linksTo(target: string) {
     const out: { path: string; key: string }[] = [];
-    const leads = (v: unknown) => {
+    const leads = (v: unknown, source: string) => {
       const m = typeof v === 'string' ? /^\[\[([^\]|#]+)/.exec(v) : null;
-      const to = m ? this.resolve(m[1])?.path : undefined;
+      const to = m ? this.resolve(m[1], source)?.path : undefined;
       return to === target || !!to?.startsWith(`${target}/`);
     };
     for (const [path, n] of this.notes) {
       const fm = n.disk ?? n.cache?.frontmatter ?? {};
-      for (const key of Object.keys(fm)) if ([fm[key]].flat().some(leads)) out.push({ path, key });
+      for (const key of Object.keys(fm)) if ([fm[key]].flat().some(v => leads(v, path))) out.push({ path, key });
     }
     return out;
   }
@@ -332,14 +333,14 @@ export class FakeObsidian {
     return n.disk ?? n.cache?.frontmatter ?? {};
   }
 
-  /** Exact path, else unique basename: enough of Obsidian's link resolution for tests. */
-  private resolve(linkpath: string): FakeFile | null {
+  /** As Obsidian: an exact path, else that title, in the source's own folder first, else the shortest path. */
+  private resolve(linkpath: string, source = ''): FakeFile | null {
     const files = [...this.notes.values()].map(n => n.file);
-    return (
-      files.find(f => f.path === linkpath || f.path === `${linkpath}.md`) ??
-      files.find(f => f.basename === linkpath) ??
-      null
-    );
+    const exact = files.find(f => f.path === linkpath || f.path === `${linkpath}.md`);
+    if (exact) return exact;
+    const title = linkpath.toLowerCase();
+    const named = files.filter(f => f.basename.toLowerCase() === title);
+    return named.find(f => parentOf(f.path) === parentOf(source)) ?? named.sort((a, b) => a.path.length - b.path.length)[0] ?? null;
   }
 
   get listenerCount() {
@@ -375,13 +376,15 @@ export class FakeObsidian {
     this.vaultEvents.emit('rename', n.file, oldPath);
   }
 
-  /** Renames a folder and its notes. Fires for the folder only, the harshest order. */
+  /** Renames a folder and its notes. Everything has moved before anyone hears, then it fires for the folder, then each note. */
   renameFolder(oldPath: string, newPath: string) {
+    const moved: [string, FakeFile][] = [];
     for (const [p, n] of [...this.notes]) {
       if (!p.startsWith(`${oldPath}/`)) continue;
       this.notes.delete(p);
       n.file = fileAt(newPath + p.slice(oldPath.length));
       this.notes.set(n.file.path, n);
+      moved.push([p, n.file]);
       if (this.awaiting.delete(p)) this.awaiting.add(n.file.path);
     }
     for (const d of [...this.folders]) {
@@ -390,11 +393,21 @@ export class FakeObsidian {
       this.folders.add(newPath + d.slice(oldPath.length));
     }
     this.vaultEvents.emit('rename', { path: newPath, name: newPath.split('/').pop() }, oldPath);
+    for (const [p, file] of moved) this.vaultEvents.emit('rename', file, p);
   }
 
   remove(path: string) {
     const n = this.notes.get(path)!;
     this.notes.delete(path);
     this.cacheEvents.emit('deleted', n.file, n.cache);
+    this.vaultEvents.emit('delete', n.file);
+  }
+
+  /** As Obsidian: the folder's event first, then what was inside it, deepest last. */
+  removeFolder(path: string) {
+    this.folders.delete(path);
+    this.vaultEvents.emit('delete', { path, name: path.split('/').pop() });
+    for (const p of [...this.notes.keys()]) if (p.startsWith(`${path}/`)) this.remove(p);
+    for (const d of [...this.folders]) if (d.startsWith(`${path}/`)) this.folders.delete(d);
   }
 }

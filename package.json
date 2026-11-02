@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "harness": "node dev/harness.mjs",
-    "perf": "node dev/perf.mjs"
+    "perf": "node dev/perf.mjs",
+    "smoke": "node dev/smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

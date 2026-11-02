@@ -118,7 +118,7 @@ export function LogForm({ id, today, apply }: { id: string; today: Day; apply(e:
 /** An item's dependencies, with the picker. The candidates are costly, so a live drag keeps the last list. */
 export function Deps({ st, a, id, act, previewing }: Omit<PanelProps, 'readTodos'>) {
   const it = st.items[id];
-  const groups = useMemo(() => depChoices(st, id), [id, previewing ? null : st]);
+  const groups = useMemo(() => depChoices(st, id), [id, previewing ? null : st.items]);
   return (
     <>
       {(it.deps ?? []).map(d => (

@@ -141,11 +141,11 @@ export function setFocus(ui: UiState, id: string | null): UiState {
   return { ...ui, focus: id, sel: null, collapsed };
 }
 
-export const goUp = (ui: UiState, st: State): UiState => (ui.focus ? setFocus(ui, st.items[ui.focus].parent) : ui);
+export const goUp = (ui: UiState, st: State): UiState => (ui.focus ? setFocus(ui, st.items[ui.focus]?.parent ?? null) : ui);
 
 /** `in`: a chosen parent. Otherwise the selected parent, else the selected item's parent, else the focus. */
 export function openForm(ui: UiState, st: State, K: KidsMap, where: 'project' | 'item' | { in: string }): UiState {
-  const near = ui.sel ? (K[ui.sel] ? ui.sel : st.items[ui.sel].parent) : null;
+  const near = ui.sel ? (K[ui.sel] ? ui.sel : (st.items[ui.sel]?.parent ?? null)) : null;
   const parent = where === 'project' ? null : where === 'item' ? (near ?? ui.focus) : where.in;
   const form = { kind: 'item' as const, parent, last: null, added: [], nonce: (ui.form?.nonce ?? ui.nonces) + 1 };
   return { ...ui, form, nonces: form.nonce, tab: 'overview', show: { ...ui.show, rail: true } };
@@ -211,22 +211,27 @@ export function rekeyUi(ui: UiState, from: string, to: string): UiState {
   };
 }
 
-/** Notes come and go under the view. */
+/** Notes come and go under the view: an id the state does not have counts as none. Unchanged, returns `ui` itself. */
 export function pruneUi(ui: UiState, st: State): UiState {
   const gone = (id: string | null) => id != null && !st.items[id];
+  const present = (s: Set<string>) => ([...s].some(gone) ? new Set([...s].filter(id => !gone(id))) : s);
   if (ui.form && (gone(ui.form.parent) || gone(ui.form.last))) {
     ui = { ...ui, form: { ...ui.form, parent: gone(ui.form.parent) ? null : ui.form.parent, last: gone(ui.form.last) ? null : ui.form.last } };
   }
-  const staleHidden = [...ui.hidden].some(gone);
+  const hidden = present(ui.hidden);
+  const collapsed = present(ui.collapsed);
+  const todoOpen = present(ui.todoOpen);
   const dlg = ui.planDlg;
   const staleDlg = !!dlg && dlg.rows.some(gone);
-  if (!gone(ui.focus) && !gone(ui.sel) && !staleHidden && !staleDlg) return ui;
+  if (!gone(ui.focus) && !gone(ui.sel) && hidden === ui.hidden && collapsed === ui.collapsed && todoOpen === ui.todoOpen && !staleDlg) return ui;
   const rows = dlg?.rows.filter(id => !gone(id));
   return {
     ...ui,
     planDlg: dlg && rows?.length ? { ...dlg, rows, ids: new Set([...dlg.ids].filter(id => !gone(id))) } : null,
     focus: gone(ui.focus) ? null : ui.focus,
     sel: gone(ui.sel) ? null : ui.sel,
-    hidden: staleHidden ? new Set([...ui.hidden].filter(id => !gone(id))) : ui.hidden,
+    hidden,
+    collapsed,
+    todoOpen,
   };
 }

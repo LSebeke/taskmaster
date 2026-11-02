@@ -115,6 +115,38 @@ const check = async (name, fn) => {
     const text = await page.locator('.tm-root').textContent();
     for (const word of ['+1 day', 'Reset', 'Stress', 'Theme', 'Scenarios']) assert.ok(!text.includes(word), word);
   });
+  await check('a view that opens before the stylesheet applies picks its colours up by itself', async () => {
+    const late = await open('theme=light&lateCss', 'light', tall);
+    await late.evaluate(() => new Promise(requestAnimationFrame));
+    await late.evaluate(() => window.tm.showStyles());
+    await late.waitForFunction(() => getComputedStyle(document.querySelector('.tm-root')).getPropertyValue('--tm-surface') !== '');
+    await late.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const same = await canvasHash(late);
+    await late.close();
+    assert.equal(same, await canvasHash(page));
+  });
+  await check('a render error stays in its part of the view, and the next change retries it', async () => {
+    const seen = problems.length;
+    await page.evaluate(() => {
+      const { signals } = window.tm.view.gantt;
+      signals.was = signals.mvp;
+      signals.mvp = () => {
+        throw new Error('boom');
+      };
+    });
+    await rowByTitle(page, 'Sensor Gateway v2').locator('.tm-t').click();
+    assert.match(await page.locator('.tm-rail .tm-guard').textContent(), /boom/);
+    assert.equal(await crumbs(page).then(t => t.trim()), 'All projects');
+    assert.equal(await page.locator('.tm-row', { hasText: 'Firmware' }).count(), 1);
+    await page.evaluate(() => {
+      const { signals } = window.tm.view.gantt;
+      signals.mvp = signals.was;
+    });
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.tm-guard').count(), 0);
+    assert.equal(await railTitle(page), 'All projects');
+    problems.length = seen;
+  });
   await check('click selects, Esc clears, view unchanged', async () => {
     const before = await rowCount(page);
     await rowByTitle(page, 'CAN stack port').click();
