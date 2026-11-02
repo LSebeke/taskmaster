@@ -1,6 +1,7 @@
 import { ItemView, Scope, type WorkspaceLeaf } from 'obsidian';
 import { GanttApp, type ViewStore } from './gantt-app';
 import { NotePicker } from './note-picker';
+import { stopAndAsk } from './timer';
 
 export const VIEW_TYPE = 'taskmaster';
 
@@ -28,9 +29,11 @@ export class TaskmasterView extends ItemView {
 
   override async onOpen() {
     this.contentEl.classList.add('tm-content');
-    const gantt = new GanttApp(this.contentEl, this.getStore(), {
+    const store = this.getStore();
+    const gantt = new GanttApp(this.contentEl, store, {
       openNote: path => void this.app.workspace.openLinkText(path, ''),
       pickNote: done => new NotePicker(this.app, done).open(),
+      stopTimer: () => stopAndAsk(this.app, store),
     });
     this.gantt = gantt;
     this.scope = new Scope(this.app.scope);

@@ -74,8 +74,9 @@ export function analyze(st: State): Analysis {
       conflicts.push({ id: t.id, msg: `Pinned end ${mmdd(it.pinE!)} is out of reach (forecast ${f != null ? mmdd(f) : 'never'})` });
     if (it.pinS != null && it.pinE != null && l > EPS && it.pinE < today)
       conflicts.push({ id: t.id, msg: 'Pinned window has passed with hours left' });
-    if (l > EPS && it.actualStart != null && it.touched != null && today - it.touched >= s.staleDays)
-      b.stale = today - it.touched;
+    // Hours left never updated: the clock runs from the start.
+    const touched = it.touched ?? it.actualStart;
+    if (l > EPS && it.actualStart != null && touched != null && today - touched >= s.staleDays) b.stale = today - touched;
   });
 
   if (r.over.length) {

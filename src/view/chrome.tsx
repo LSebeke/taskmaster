@@ -1,6 +1,7 @@
-import { isoWeekKey, type Analysis, type State } from '../engine';
+import { isoWeekKey, type Analysis, type RunningTimer, type State } from '../engine';
 import { NumField } from './rail/fields';
 import { hiddenList } from './rows';
+import { timerText } from './timer';
 import { EYE, EYE_OFF } from './hierarchy';
 import { VIEW_TOGGLES } from './view-menu-items';
 import { ZOOMS, layers, type Axis, type LayerLevel, type LayerName, type Show, type UiState } from './ui-state';
@@ -174,11 +175,30 @@ export function Legend({ st, a, ui }: { st: State; a: Analysis; ui: UiState }) {
   );
 }
 
-export function StatusBar({ st, a, message, onCapacity }: { st: State; a: Analysis; message: string; onCapacity(hours: number): void }) {
+export interface StatusProps {
+  st: State;
+  a: Analysis;
+  message: string;
+  onCapacity(hours: number): void;
+  timer: RunningTimer | null | undefined;
+  now: number;
+  onTimerOpen(id: string): void;
+  onTimerStop(): void;
+}
+
+export function StatusBar({ st, a, message, onCapacity, timer, now, onTimerOpen, onTimerStop }: StatusProps) {
   const n = a.conflicts.length;
   return (
     <>
       <span class="tm-changes">{message}</span>
+      {timer && (
+        <span class="tm-timer">
+          <span class="tm-link" onClick={() => onTimerOpen(timer.id)}>
+            {timerText(st, timer, now)}
+          </span>
+          <button onClick={onTimerStop}>Stop</button>
+        </span>
+      )}
       {n > 0 && (
         <span class="tm-tone-crit">
           ⚠ {n} conflict{n > 1 ? 's' : ''}

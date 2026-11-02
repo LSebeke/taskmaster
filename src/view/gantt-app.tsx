@@ -1,5 +1,5 @@
 import { render } from 'preact';
-import { analyze, isoWeekKey, type Analysis, type NewItem, type State, type Todo } from '../engine';
+import { analyze, isoWeekKey, type Analysis, type NewItem, type RunningTimer, type State, type Todo } from '../engine';
 import type { Done } from '../store';
 import { linkNote, setWeekCapacity, setWeekly, updatePlan, type Edit } from '../store/edits';
 import { describeChanges } from './changes';
@@ -20,6 +20,7 @@ import { HistoryDialog, PlanDialogBox } from './plan-dialog';
 import { openPlan, planTarget, setPlanDeep, togglePlanRow } from './plan-ui';
 import { Rail } from './rail/rail';
 import { RowDrag, type Drop, type RowHit } from './row-drag';
+import { Signals } from './signals';
 import { buildRows, HEAD, LOADH, ROW, rowView, type Row } from './rows';
 import { cleanForSharing, defaultUi, defaultView, escape, goUp, isInside, openForm, pruneUi, rekeyUi, setFocus, setLayer, setShow, toggleCollapsed, toggleHidden, type UiState } from './ui-state';
 
@@ -39,14 +40,23 @@ export interface ViewStore {
   remove(id: string): Promise<Done>;
   linkNew(id: string, title: string): Promise<Done>;
   onMove(listener: (from: string, to: string) => void): () => void;
+  backlinks(id: string): string[];
+  readonly timer: RunningTimer | null | undefined;
+  time(): number;
+  startTimer(id: string): boolean;
+  stopTimer(): { id: string; hours: number; level: number } | null;
 }
 
 export interface ViewHost {
   openNote(path: string): void;
   /** Obsidian's note picker. */
   pickNote(done: (pick: NotePick) => void): void;
+  /** Stops the timer and asks for hours left. */
+  stopTimer(): void;
 }
 
+/** The status bar's clock. Minutes are what it shows. */
+const TICK_MS = 15_000;
 const WHEEL_IN = 1.15;
 const WHEEL_OUT = 0.87;
 const TODAY_AT = 0.22;
@@ -66,6 +76,8 @@ const div = (parent: HTMLElement, cls: string, tag = 'div') => {
 export class GanttApp {
   /** Times the schedule ran. Scrolling and zooming must leave this alone. */
   recomputes = 0;
+  /** Schedule reruns for rail panels. Only the panel on screen asks. */
+  readonly signals = new Signals();
 
   private ui: UiState = defaultUi();
   private a: Analysis;
@@ -91,6 +103,7 @@ export class GanttApp {
   private unsubscribe: () => void;
   private unmove: () => void;
   private resize: ResizeObserver;
+  private clock: ReturnType<typeof setInterval>;
 
   private root: HTMLElement;
   private top: HTMLElement;
@@ -150,6 +163,7 @@ export class GanttApp {
     this.unmove = store.onMove((from, to) => this.onMove(from, to));
     this.resize = new ResizeObserver(() => this.onResize());
     this.resize.observe(this.chart);
+    this.clock = setInterval(() => this.tick(), TICK_MS);
   }
 
   destroy() {
@@ -157,6 +171,7 @@ export class GanttApp {
     this.unsubscribe();
     this.unmove();
     this.resize.disconnect();
+    clearInterval(this.clock);
     cancelAnimationFrame(this.raf);
     for (const host of [this.top, this.legend, this.treeHead, this.treeFoot, this.rail, this.status, this.overlay, this.dialog]) render(null, host);
     this.root.remove();
@@ -203,6 +218,29 @@ export class GanttApp {
     const x1 = left + this.scale.x(bar.d1);
     const dot = dotAt(bar, this.scale);
     return { x: (x0 + x1) / 2, y: top + bar.top + bar.h / 2, x0, x1, dot: { x: left + dot.x, y: top + dot.y } };
+  }
+
+  /** A running timer's clock moves on. Nothing else does, so nothing is recalculated. */
+  tick() {
+    if (this.store.timer) this.renderStatus();
+  }
+
+  get selected(): string | null {
+    return this.ui.sel;
+  }
+
+  newProject() {
+    this.openForm('project');
+  }
+
+  newUnder(id: string) {
+    this.openForm({ in: id });
+  }
+
+  /** The one running timer stops first, with its prompt. */
+  private startTimer(id: string) {
+    if (this.store.timer) this.view.stopTimer();
+    this.store.startTimer(id);
   }
 
   /** N: the add form, as `+ Item` opens it. */
@@ -381,7 +419,19 @@ export class GanttApp {
   }
 
   private renderStatus() {
-    render(<StatusBar st={this.st} a={this.a} message={this.message} onCapacity={h => this.store.apply(setWeekly(h))} />, this.status);
+    render(
+      <StatusBar
+        st={this.st}
+        a={this.a}
+        message={this.message}
+        onCapacity={h => this.store.apply(setWeekly(h))}
+        timer={this.store.timer}
+        now={this.store.time()}
+        onTimerOpen={id => this.selectAndReveal(id)}
+        onTimerStop={() => this.view.stopTimer()}
+      />,
+      this.status,
+    );
   }
 
   private setUi(next: UiState) {
@@ -523,6 +573,11 @@ export class GanttApp {
           move: (id, parent) => this.refuse(this.store.move(id, parent)),
           remove: id => this.refuse(this.store.remove(id)),
           link: id => this.view.pickNote(pick => this.linkPicked(id, pick)),
+          signals: this.signals,
+          backlinks: id => this.store.backlinks(id),
+          timer: this.store.timer,
+          startTimer: id => this.startTimer(id),
+          stopTimer: () => this.view.stopTimer(),
         }}
       />,
       this.rail,

@@ -7,4 +7,4 @@ export { addTier, ensureTiers, moveToTier, removeTier } from './tiers';
 export { editLog, logHours, setLeft, setTotal } from './hours';
 export { addItem, moveError, moveItem, newItemError, placeError, removeItem, validateNew, type NewItem } from './structure';
 export { snapshot, updatePlan } from './plan';
-export { accuracy, adjusted, externalImpact, finishOf, mvp } from './metrics';
+export { accuracy, adjusted, externalImpact, finishOf, mvp, mvpVerdict, nextUp, type MvpSignal, type MvpVerdict } from './metrics';

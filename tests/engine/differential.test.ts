@@ -89,6 +89,8 @@ describe('differential: prototype engine vs. port on seed data', () => {
   ])('every day of 60 working days, %s', (_, burnsOnly) => {
     const st = proto.seed();
     for (let i = 0; i < 60; i++) {
+      // The prototype never calls a task stale without this date. The port counts from the start.
+      for (const it of Object.values<any>(st.items)) if (it.actualStart != null) it.touched ??= it.actualStart;
       const a = E.analyze(st);
       expect(plain(Port.analyze(plain(st)))).toEqual(plain(a));
       E.advanceDay(st, a, burnsOnly);

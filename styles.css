@@ -202,3 +202,15 @@
 .tm-root button.tm-del{color:var(--tm-crit)}
 .tm-root button.tm-del.tm-armed{background:var(--tm-crit);color:var(--tm-surface)}
 .tm-root form input.tm-num-in{width:90px}
+
+.tm-timer{display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.tm-root .tm-timer button{padding:0 7px;font-size:11px}
+.tm-mvp .tm-li{padding:2px 0}
+.tm-linked-from{margin-top:6px}
+
+/* Modals live outside .tm-root, in Obsidian's own chrome. */
+.tm-prompt{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.tm-prompt p{margin:0}
+.tm-prompt label{display:flex;gap:10px;align-items:center;justify-content:space-between;width:100%}
+.tm-prompt input{width:150px}
+.tm-prompt button{align-self:flex-end}

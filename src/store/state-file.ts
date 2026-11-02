@@ -10,10 +10,11 @@ export const STATE_TMP = `${STATE_PATH}.tmp`;
 export const STATE_BAD = `${STATE_PATH}.bad`;
 
 /** The part of State that lives in state.json. Dates are ISO strings on disk. */
-export type StateFile = Pick<State, 'tiers' | 'plan' | 'planHistory' | 'order'> & {
+export type StateFile = Pick<State, 'tiers' | 'plan' | 'planHistory' | 'order' | 'timer' | 'folder'> & {
   weekly: number;
   weekCap: Record<number, number>;
   holidays: Day[];
+  staleDays?: number;
 };
 
 const planEntry = (e: PlanEntry) => ({ start: iso(e.start), end: iso(e.end), hours: e.hours });
@@ -21,7 +22,7 @@ const planEntries = (o: Partial<Record<string, PlanEntry>>) => Object.fromEntrie
 
 /** The inverse of parseStateFile. */
 export function serializeState(st: State): string {
-  const { weekly, weekCap, holidays } = st.settings;
+  const { weekly, weekCap, holidays, staleDays } = st.settings;
   return `${JSON.stringify(
     {
       tiers: st.tiers,
@@ -30,6 +31,9 @@ export function serializeState(st: State): string {
       capacity: weekly,
       weekCapacity: Object.fromEntries(Object.entries(weekCap ?? {}).map(([w, h]) => [isoWeekKey(Number(w)), h])),
       holidays: holidays.map(iso),
+      staleDays,
+      projectsFolder: st.folder,
+      ...(st.timer ? { timer: { id: st.timer.id, since: new Date(st.timer.since).toISOString() } } : {}),
       ...(st.order?.length ? { order: st.order } : {}),
     },
     null,
@@ -92,7 +96,7 @@ export function parseStateFile(raw: string): { file: StateFile; warnings: StoreW
     return { file, warnings, broken: true };
   }
 
-  const { tiers, plan, planHistory, capacity, weekCapacity, holidays, order } = root;
+  const { tiers, plan, planHistory, capacity, weekCapacity, holidays, order, staleDays, projectsFolder, timer } = root;
 
   if (Array.isArray(tiers)) {
     const seen = new Set<string>();
@@ -146,6 +150,18 @@ export function parseStateFile(raw: string): { file: StateFile; warnings: StoreW
       else file.holidays.push(d);
     }
   } else if (holidays !== undefined) warn('Expected a list of dates', 'holidays');
+
+  if (typeof staleDays === 'number' && Number.isInteger(staleDays) && staleDays >= 1) file.staleDays = staleDays;
+  else if (staleDays !== undefined) warn(`Expected whole days, got ${JSON.stringify(staleDays)}`, 'staleDays');
+
+  if (typeof projectsFolder === 'string') file.folder = projectsFolder;
+  else if (projectsFolder !== undefined) warn('Expected a folder path', 'projectsFolder');
+
+  if (timer !== undefined) {
+    const since = isObject(timer) && typeof timer.since === 'string' ? Date.parse(timer.since) : Number.NaN;
+    if (isObject(timer) && typeof timer.id === 'string' && !Number.isNaN(since)) file.timer = { id: timer.id, since };
+    else warn('Skipped a timer it could not read', 'timer');
+  }
 
   if (Array.isArray(order)) file.order = order.filter(id => typeof id === 'string');
   else if (order !== undefined) warn('Expected a list', 'order');

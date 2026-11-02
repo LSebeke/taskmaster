@@ -27,9 +27,150 @@ class Events {
 
 export class FakeWorkspace extends Events {
   opened: string[] = [];
+  private active: { path: string } | null = null;
   async openLinkText(link: string) {
     this.opened.push(link);
   }
+  setActive(path: string | null) {
+    this.active = path ? { path } : null;
+  }
+  getActiveFile() {
+    return this.active;
+  }
+  getActiveViewOfType() {
+    return null;
+  }
+}
+
+/** Every Notice shown. */
+export const notices: string[] = [];
+
+export class Notice {
+  constructor(message: string) {
+    notices.push(message);
+  }
+}
+
+/** Obsidian's modal, as far as a keyboard can tell. */
+export class Modal {
+  containerEl = document.createElement('div');
+  titleEl = document.createElement('h2');
+  contentEl = document.createElement('div');
+  private onKey = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    this.close();
+  };
+  constructor(public app: FakeApp) {
+    this.containerEl.className = 'tm-fake-dialog';
+    this.containerEl.style.cssText = 'position:fixed;top:120px;left:35%;width:30%;z-index:50;padding:12px 16px;background:var(--background-primary);color:var(--text-normal);border:1px solid var(--background-modifier-border);border-radius:8px';
+    this.containerEl.append(this.titleEl, this.contentEl);
+  }
+  setTitle(title: string) {
+    this.titleEl.textContent = title;
+    return this;
+  }
+  onOpen(): void {}
+  onClose(): void {}
+  open() {
+    document.body.append(this.containerEl);
+    document.addEventListener('keydown', this.onKey, true);
+    this.onOpen();
+  }
+  close() {
+    document.removeEventListener('keydown', this.onKey, true);
+    this.containerEl.remove();
+    this.onClose();
+  }
+}
+
+class FakeText {
+  inputEl = document.createElement('input');
+  getValue() {
+    return this.inputEl.value;
+  }
+  setValue(v: string) {
+    this.inputEl.value = v;
+    return this;
+  }
+  setPlaceholder(v: string) {
+    this.inputEl.placeholder = v;
+    return this;
+  }
+}
+
+class FakeButton {
+  buttonEl = document.createElement('button');
+  setButtonText(t: string) {
+    this.buttonEl.textContent = t;
+    return this;
+  }
+  setIcon(_: string) {
+    this.buttonEl.textContent = '×';
+    return this;
+  }
+  setTooltip(t: string) {
+    this.buttonEl.setAttribute('aria-label', t);
+    return this;
+  }
+  onClick(cb: () => void) {
+    this.buttonEl.addEventListener('click', cb);
+    return this;
+  }
+}
+
+export class Setting {
+  settingEl = document.createElement('div');
+  private info = document.createElement('div');
+  private control = document.createElement('div');
+  constructor(el: HTMLElement) {
+    this.settingEl.className = 'setting-item';
+    this.settingEl.style.cssText = 'display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--background-modifier-border)';
+    this.control.style.cssText = 'display:flex;gap:6px;align-items:center';
+    this.settingEl.append(this.info, this.control);
+    el.append(this.settingEl);
+  }
+  setName(name: string) {
+    this.info.append(Object.assign(document.createElement('div'), { textContent: name }));
+    return this;
+  }
+  setDesc(desc: string) {
+    const d = Object.assign(document.createElement('small'), { textContent: desc });
+    d.style.color = 'var(--text-muted)';
+    this.info.append(d);
+    return this;
+  }
+  setHeading() {
+    this.info.style.fontWeight = '600';
+    return this;
+  }
+  addText(cb: (t: FakeText) => unknown) {
+    const t = new FakeText();
+    this.control.append(t.inputEl);
+    cb(t);
+    return this;
+  }
+  addButton(cb: (b: FakeButton) => unknown) {
+    const b = new FakeButton();
+    this.control.append(b.buttonEl);
+    cb(b);
+    return this;
+  }
+  addExtraButton(cb: (b: FakeButton) => unknown) {
+    return this.addButton(cb);
+  }
+}
+
+type Emptiable = HTMLElement & { empty(): void };
+
+export abstract class PluginSettingTab {
+  containerEl = document.createElement('div') as unknown as Emptiable;
+  constructor(public app: FakeApp, _plugin: unknown) {
+    this.containerEl.empty = () => this.containerEl.replaceChildren();
+    this.containerEl.className = 'tm-fake-settings';
+    this.containerEl.style.cssText = 'position:fixed;inset:60px 25%;z-index:40;overflow:auto;padding:12px 16px;background:var(--background-primary);color:var(--text-normal);border:1px solid var(--background-modifier-border)';
+  }
+  abstract display(): void;
 }
 
 export class FakeApp {

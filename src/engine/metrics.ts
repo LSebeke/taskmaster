@@ -1,7 +1,7 @@
 import { workDays } from './calendar';
 import { effDeps, kids, leavesOf, rootOf } from './graph';
 import { EPS, schedule, type Schedule } from './schedule';
-import type { Day, KidsMap, ScheduleOptions, State } from './types';
+import type { Analysis, Day, KidsMap, ScheduleOptions, State } from './types';
 
 /** Estimate ratio: actual over estimate on finished tasks. */
 export function accuracy(st: State, root: string, K: KidsMap = kids(st)): { ratio: number; sample: number } | null {
@@ -18,8 +18,9 @@ export function accuracy(st: State, root: string, K: KidsMap = kids(st)): { rati
 }
 
 /** Project finish. Null with nothing scheduled, Infinity if a task never finishes. */
-export function finishOf(st: State, root: string, opt: ScheduleOptions = {}): Day | null {
-  const { C, r } = schedule(st, opt);
+export const finishOf = (st: State, root: string, opt: ScheduleOptions = {}): Day | null => finishIn(schedule(st, opt), root);
+
+function finishIn({ C, r }: Schedule, root: string): Day | null {
   let m: Day | null = null;
   C.T.forEach((t, i) => {
     if (t.root !== root) return;
@@ -57,6 +58,30 @@ export function mvp(st: State, root: string): MvpSignal {
   };
 }
 
+export type MvpVerdict = 'full' | 'no-could' | 'must-only' | 'miss';
+
+/** Null without a deadline or without anything scheduled. An option with no work left finishes nothing, so it makes it. */
+export function mvpVerdict(m: MvpSignal): MvpVerdict | null {
+  const { deadline } = m;
+  if (deadline == null || m.full == null) return null;
+  const makes = (d: Day | null) => d == null || d <= deadline;
+  if (makes(m.full)) return 'full';
+  if (makes(m.noCould)) return 'no-could';
+  return makes(m.mustOnly) ? 'must-only' : 'miss';
+}
+
+const NEXT_UP = 5;
+
+/** Unblocked tasks in tier order, critical first inside a level. Scope limits it to one item's tasks. */
+export function nextUp(st: State, a: Analysis, scope: string | null, limit = NEXT_UP): string[] {
+  const inside = scope ? new Set(leavesOf(st, scope, a.K)) : null;
+  const clear = (id: string) => effDeps(st, id, a.K).every(p => p === id || a.by[p]?.done || a.by[p]?.draft);
+  const crit = (id: string) => (a.by[id].crit ? 0 : 1);
+  return st.tiers
+    .flatMap(level => level.filter(id => st.items[id] && (!inside || inside.has(id)) && !a.by[id]?.done && clear(id)).sort((x, y) => crit(x) - crit(y)))
+    .slice(0, limit);
+}
+
 const startIn = (S: Schedule, id: string): Day | null => {
   const k = S.C.ix[id];
   const x = S.r.first[k] >= 0 ? S.r.first[k] : S.r.fin[k];
@@ -77,12 +102,15 @@ export function externalImpact(st: State, id: string) {
       return { id: i, start: a, days: a != null && b != null && a > b ? workDays(b + 1, a, s) : 0 };
     })
     .sort((x, y) => y.days - x.days);
-  const projects = [...new Set(users.map(i => rootOf(st, i)))].map(root => {
-    const a = finishOf(st, root);
-    const b = finishOf(st, root, { exclude: new Set([id]) });
-    const later = a != null && b != null && a !== Infinity && b !== Infinity && a > b;
-    return { root, days: later ? workDays(b + 1, a, s) : 0 };
-  });
+  const later = (root: string) => {
+    const a = finishIn(withIt, root);
+    const b = finishIn(without, root);
+    return a != null && b != null && a !== Infinity && b !== Infinity && a > b ? workDays(b + 1, a, s) : 0;
+  };
+  const blocked = new Set(users.map(i => rootOf(st, i)));
+  // A project with nothing blocked still slips when delayed work takes its hours.
+  const others = [...new Set(withIt.C.T.map(t => t.root))].filter(root => !blocked.has(root) && root !== id && later(root) > 0);
+  const projects = [...blocked, ...others].map(root => ({ root, days: later(root) }));
   return { users, items, projects };
 }
 

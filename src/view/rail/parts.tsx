@@ -1,9 +1,10 @@
 import type { ComponentChildren } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
-import type { Analysis, NewItem, State, Todo } from '../../engine';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import type { Analysis, NewItem, RunningTimer, State, Todo } from '../../engine';
 import { unlinkNote, type Edit } from '../../store/edits';
 import { fmtD, h1, noteName } from '../format';
 import { statusOf } from '../explain';
+import type { Signals } from '../signals';
 import type { UiState } from '../ui-state';
 
 export interface RailActions {
@@ -25,6 +26,12 @@ export interface RailActions {
   move(id: string, parent: string | null): void;
   remove(id: string): void;
   link(id: string): void;
+  /** Schedule reruns for the panel on screen. */
+  signals: Signals;
+  backlinks(id: string): string[];
+  timer: RunningTimer | null | undefined;
+  startTimer(id: string): void;
+  stopTimer(): void;
 }
 
 export interface PanelProps {
@@ -98,6 +105,7 @@ export const Link = ({ id, st, act }: { id: string; st: State; act: RailActions 
 
 export function Notes({ st, id, act }: Pick<PanelProps, 'st' | 'id' | 'act'>) {
   const notes = st.items[id].notes ?? [];
+  const backlinks = useMemo(() => act.backlinks(id), [id, st.items]);
   return (
     <>
       {notes.map(n => (
@@ -110,7 +118,15 @@ export function Notes({ st, id, act }: Pick<PanelProps, 'st' | 'id' | 'act'>) {
           </button>
         </div>
       ))}
-      {!notes.length && <div class="tm-sub">None</div>}
+      {!notes.length && !backlinks.length && <div class="tm-sub">None</div>}
+      {backlinks.length > 0 && <div class="tm-sub tm-linked-from">Linked from</div>}
+      {backlinks.map(n => (
+        <div class="tm-li" key={n}>
+          <span class="tm-grow tm-link tm-note tm-backlink" title={n} onClick={() => act.openNote(n)}>
+            [[{noteName(n)}]]
+          </span>
+        </div>
+      ))}
       <div class="tm-actions">
         <button onClick={() => act.link(id)}>Link note</button>
       </div>

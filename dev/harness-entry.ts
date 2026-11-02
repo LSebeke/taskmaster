@@ -2,23 +2,29 @@ import { analyze } from '../src/engine';
 import * as edits from '../src/store/edits';
 import { STATE_PATH, TaskmasterStore } from '../src/store';
 import { TaskmasterView } from '../src/view';
-import { FakeApp, Scope, WorkspaceLeaf } from './fake-obsidian';
-import { bigSeed, seed } from './seed';
+import { commands, TaskmasterSettingTab } from '../src/view';
+import { FakeApp, notices, Scope, WorkspaceLeaf } from './fake-obsidian';
+import { bigSeed, miniSeed, seed } from './seed';
 import { vaultFrom } from './vault';
 
 const params = new URLSearchParams(location.search);
 document.body.classList.add(`theme-${params.get('theme') ?? 'light'}`);
 
-const seeded = params.has('big') ? bigSeed() : params.has('empty') ? { ...seed(), items: {}, plan: {}, tiers: [] } : seed();
+const seeded = params.has('big') ? bigSeed() : params.has('mini') ? miniSeed() : params.has('empty') ? { ...seed(), items: {}, plan: {}, tiers: [] } : seed();
 const { vault, pathOf } = vaultFrom(seeded);
 vault.echoMs = 15;
+if (!params.has('mini') && !params.has('empty') && !params.has('big')) vault.add('Notes/Bench report.md', undefined, undefined, 'See [[CAN stack port]].');
 
 const app = new FakeApp();
 app.vault = vault.app.vault;
-const store = new TaskmasterStore(vault.app, { today: () => seeded.today, debounceMs: 15, writeMs: 25 });
+let skew = 0;
+const store = new TaskmasterStore(vault.app, { today: () => seeded.today, now: () => Date.now() + skew, debounceMs: 15, writeMs: 25 });
 const leaf = new WorkspaceLeaf(app);
 const view = new TaskmasterView(leaf as never, () => store);
 document.body.append(view.containerEl);
+const host = { app: app as never, store: () => store, view: async () => view };
+const list = commands(host);
+const settings = new TaskmasterSettingTab(app as never, {} as never, () => store);
 
 let started = 0;
 void store.load().then(async () => {
@@ -45,6 +51,16 @@ void store.load().then(async () => {
       note: (id: string) => vault.frontmatter(pathOf(id)),
       forecast: () => JSON.stringify(analyze(store.state).by),
       stateFile: () => JSON.parse(vault.files.get(STATE_PATH) ?? '{}'),
+      commands: list,
+      command: (id: string) => list.find(c => c.id === id)!.run(),
+      notices,
+      /** Moves the store's clock on. */
+      skew: (ms: number) => (skew += ms),
+      openSettings: () => {
+        document.body.append(settings.containerEl);
+        settings.display();
+      },
+      closeSettings: () => settings.containerEl.remove(),
     },
   });
 });

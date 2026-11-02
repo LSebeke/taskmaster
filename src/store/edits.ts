@@ -47,13 +47,15 @@ export const setTotal =
     return `${it.title}: ${num(hours)}h total`;
   };
 
+/** `level`: where a task left its level only because a timer ran past its hours, so it goes back there. */
 export const setHoursLeft =
-  (id: string, hours: number): Edit =>
+  (id: string, hours: number, level?: number | null): Edit =>
   st => {
     const it = st.items[id];
     if (!it) return;
     firstEstimate(it, hours);
     setLeft(it, hours, st.today);
+    if (level != null && it.left! > 0 && !st.tiers.flat().includes(id)) st.tiers[level]?.push(id);
     return `${it.title}: ${num(hours)}h left`;
   };
 
@@ -170,6 +172,74 @@ export const setWeekCapacity =
     return hours == null ? 'Week override cleared' : `Week override ${num(hours)}h`;
   };
 
+export const setStaleDays =
+  (days: number): Edit =>
+  st => {
+    if (!Number.isInteger(days) || days < 1) return;
+    st.settings.staleDays = days;
+    return `Stale after ${days} day${days > 1 ? 's' : ''}`;
+  };
+
+export const addHoliday =
+  (day: Day): Edit =>
+  st => {
+    if (st.settings.holidays.includes(day)) return;
+    st.settings.holidays = [...st.settings.holidays, day].sort((a, b) => a - b);
+    return `Holiday ${iso(day)}`;
+  };
+
+export const removeHoliday =
+  (day: Day): Edit =>
+  st => {
+    if (!st.settings.holidays.includes(day)) return;
+    st.settings.holidays = st.settings.holidays.filter(d => d !== day);
+    return `Holiday ${iso(day)} removed`;
+  };
+
+/** With trailing slash, as `State.folder` holds it. */
+export const setFolder =
+  (folder: string): Edit =>
+  st => {
+    st.folder = folder;
+    return `Projects folder ${folder || 'is the whole vault'}`;
+  };
+
+/** Childless, a plain item, with hours left. */
+const timeable = (st: State, id: string) => {
+  const it = st.items[id];
+  return it?.kind === 'item' && it.left! > 0 && !kids(st)[id];
+};
+
+export const startTimer =
+  (id: string, now: number): Edit =>
+  st => {
+    if (st.timer || !timeable(st, id)) return;
+    st.timer = { id, since: now };
+    return `Timer started on ${st.items[id].title}`;
+  };
+
+/** Hours stopping now would log, to the hundredth. None on a task that has gained children: hours go on tasks. */
+export function timerHours(st: State, now: number): number {
+  const t = st.timer;
+  if (!t || !st.items[t.id] || kids(st)[t.id]) return 0;
+  return Math.max(0, Math.round((now - t.since) / 36_000) / 100);
+}
+
+/** Under a hundredth of an hour logs nothing. */
+export const stopTimer =
+  (now: number): Edit =>
+  st => {
+    const t = st.timer;
+    if (!t) return;
+    const hours = timerHours(st, now);
+    delete st.timer;
+    const it = st.items[t.id];
+    if (!it) return 'Timer stopped';
+    if (!hours) return `Timer stopped on ${it.title}, nothing to log`;
+    engineLog(it, st.today, hours, st.today);
+    return `Logged ${num(hours)}h on ${it.title}`;
+  };
+
 /** Notes project in path order. This keeps the order siblings have now, which a project's colour follows. */
 function pinSiblings(st: State, parent: string | null) {
   const siblings = kids(st)[parent ?? ''] ?? [];
@@ -204,6 +274,7 @@ export const removeEdit =
     if (!it) return;
     removeItem(st, id);
     st.order = st.order?.filter(x => st.items[x]);
+    if (st.timer && !st.items[st.timer.id]) delete st.timer;
     return `Deleted ${it.title}`;
   };
 

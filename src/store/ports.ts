@@ -6,7 +6,7 @@ export interface StoreApp {
     adapter: Pick<DataAdapter, 'exists' | 'read' | 'write' | 'rename' | 'remove' | 'mkdir'>;
   };
   fileManager: Pick<FileManager, 'processFrontMatter' | 'renameFile' | 'trashFile' | 'getNewFileParent'>;
-  metadataCache: Pick<MetadataCache, 'getFileCache' | 'getFirstLinkpathDest' | 'fileToLinktext' | 'on' | 'offref'>;
+  metadataCache: Pick<MetadataCache, 'resolvedLinks' | 'getFileCache' | 'getFirstLinkpathDest' | 'fileToLinktext' | 'on' | 'offref'>;
 }
 
 /** Where a path is after `from` became `to`, for a note or a folder. */

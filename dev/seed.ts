@@ -105,6 +105,24 @@ export function seed(): State {
   return st;
 }
 
+/** Small enough to work out by hand, at the spec's 30h/week. The harness's expected values come from this. */
+export function miniSeed(): State {
+  const today = D('2026-11-02');
+  const item = (title: string, parent: string | null, o: Partial<Item> = {}): Item => ({ title, parent, kind: 'item', scope: 'must', deps: [], todos: [], notes: [], ...o });
+  const task = (title: string, parent: string, scope: Item['scope']) => item(title, parent, { est: 12, spent: 0, left: 12, scope });
+  const items: Record<string, Item> = {
+    'mini.p': item('Alpha', null, { deadline: D('2026-11-06') }),
+    'mini.d': item('Done one', 'mini.p', { est: 10, spent: 15, left: 0, doneOn: today - 3, touched: today - 3, actualStart: today - 10, log: [{ d: today - 10, h: 15 }] }),
+    'mini.m': task('Must one', 'mini.p', 'must'),
+    'mini.s': task('Should one', 'mini.p', 'should'),
+    'mini.c': task('Could one', 'mini.p', 'could'),
+    'mini.q': item('Beta', null),
+    'mini.e': item('Blocked task', 'mini.q', { est: 6, spent: 0, left: 6, deps: ['mini.x'] }),
+    'mini.x': { title: 'Bench outage', parent: null, kind: 'ext', pinS: today, pinE: today + 1, deps: [] },
+  };
+  return { items, plan: {}, today, settings: { weekly: 30, staleDays: 7, holidays: [] }, tiers: [['mini.e'], ['mini.m', 'mini.s', 'mini.c']] };
+}
+
 /** 1,110 items, for windowing. */
 export function bigSeed(): State {
   const st: State = { items: {}, plan: {}, today: D('2026-11-02'), settings: { weekly: 300, staleDays: 7, holidays: [] }, tiers: [] };

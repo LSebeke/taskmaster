@@ -1,10 +1,11 @@
-import { leavesOf, type Scope } from '../../engine';
+import { leavesOf, nextUp, rootOf, type Scope } from '../../engine';
 import { deleteLogEntry, editLogEntry, moveTask, setBudget, setDeadline, setHoursLeft, setPin, setScope, setTotal } from '../../store/edits';
 import { countNotInPlan, planGapText, upcomingExternals, why } from '../explain';
 import { fmtD, h1 } from '../format';
 import { DateField, Deps, EdgeSwitch, LogForm, NumField } from './fields';
 import { Blocks, DeleteButton, InsidePicker, NameField } from './item-fields';
 import { Card, Dated, Field, Link, Notes, StatusCard, Tiles, Todos, type PanelProps } from './parts';
+import { EstimateCard, ExternalEffect, MvpCard, TimerControl } from './signals';
 
 const SCOPES: Scope[] = ['must', 'should', 'could'];
 
@@ -16,15 +17,12 @@ const Back = ({ act }: Pick<PanelProps, 'act'>) => <button onClick={() => act.se
 function Lists({ st, a, scope, act }: { scope: string | null } & Pick<PanelProps, 'st' | 'a' | 'act'>) {
   const leaves = scope ? new Set(leavesOf(st, scope, a.K)) : null;
   const conflicts = a.conflicts.filter(c => !leaves || c.id == null || leaves.has(c.id));
-  const unplanned = countNotInPlan(st, a, scope);
   const externals = upcomingExternals(st, a, scope);
+  const next = nextUp(st, a, scope);
+  const project = scope ? rootOf(st, scope) : null;
+  const stale = Object.keys(st.items).filter(i => a.by[i]?.stale && (!project || rootOf(st, i) === project));
   return (
     <>
-      {unplanned > 0 && (
-        <Card tone="warn">
-          ● {unplanned} item{unplanned > 1 ? 's are' : ' is'} not in the plan yet. The forecast includes {unplanned > 1 ? 'them' : 'it'}, the plan does not.
-        </Card>
-      )}
       {externals.length > 0 && <h3>External</h3>}
       {externals.map(i => (
         <div class="tm-li" key={i}>
@@ -34,6 +32,18 @@ function Lists({ st, a, scope, act }: { scope: string | null } & Pick<PanelProps
           </span>
         </div>
       ))}
+      {next.length > 0 && <h3>Next up</h3>}
+      {next.length > 0 && (
+        <div class="tm-next">
+          {next.map(i => (
+            <div class="tm-li" key={i}>
+              {a.by[i].crit && <span class="tm-tone-crit" title="On the critical chain">◆</span>}
+              <Link id={i} st={st} act={act} />
+              <span class="tm-num">{h1(a.by[i].left)}h</span>
+            </div>
+          ))}
+        </div>
+      )}
       {conflicts.length > 0 && <h3>Conflicts</h3>}
       {conflicts.map((c, n) => (
         <div class={c.id ? 'tm-link' : ''} key={n} onClick={() => c.id && act.select(c.id)}>
@@ -43,10 +53,31 @@ function Lists({ st, a, scope, act }: { scope: string | null } & Pick<PanelProps
           </Card>
         </div>
       ))}
+      {stale.length > 0 && <h3>Stale estimates</h3>}
+      {stale.length > 0 && (
+        <div class="tm-stale">
+          {stale.map(i => (
+            <div class="tm-li" key={i}>
+              <Link id={i} st={st} act={act} />
+              <span class="tm-num">{a.by[i].stale}d old</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div class="tm-actions">
         <button onClick={act.openHistory}>Plan history ({st.planHistory?.length ?? 0})</button>
       </div>
     </>
+  );
+}
+
+function NotInPlan({ st, a, scope }: { scope: string | null } & Pick<PanelProps, 'st' | 'a'>) {
+  const n = countNotInPlan(st, a, scope);
+  if (!n) return null;
+  return (
+    <Card tone="warn">
+      ● {n} item{n > 1 ? 's are' : ' is'} not in the plan yet. The forecast includes {n > 1 ? 'them' : 'it'}, the plan does not.
+    </Card>
   );
 }
 
@@ -71,6 +102,7 @@ export function AllProjects({ st, a, roots, act }: Pick<PanelProps, 'st' | 'a' |
         );
       })}
       {roots.length === 0 && <div class="tm-sub">No projects yet.</div>}
+      <NotInPlan st={st} a={a} scope={null} />
       <Lists st={st} a={a} scope={null} act={act} />
     </>
   );
@@ -95,6 +127,9 @@ export function Overview({ st, a, id, act, readTodos, previewing, selected, focu
       </div>
       {free > 0 && <Card tone="warn">▲ {h1(free)}h of budget are not in any item yet. The forecast ignores them, so finish dates look earlier than they will be.</Card>}
       {gap && <Card tone="warn">{gap} This level's plan stays until you update it.</Card>}
+      <NotInPlan st={st} a={a} scope={id} />
+      {!it.parent && <MvpCard st={st} a={a} id={id} act={act} previewing={previewing} />}
+      <EstimateCard st={st} a={a} id={id} act={act} previewing={previewing} />
       <h3>Linked notes</h3>
       <Notes st={st} id={id} act={act} />
       <h3>Properties</h3>
@@ -147,6 +182,7 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
             ⚠ {c.msg}
           </Card>
         ))}
+      {b.stale != null && <Card tone="warn">▲ Hours left not updated for {b.stale} days.</Card>}
       {!ms && <Tiles st={st} a={a} id={id} />}
       <Card>
         {why(st, a, id)}
@@ -204,6 +240,8 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
               </button>
             </div>
           ))}
+          <h3>Timer</h3>
+          <TimerControl st={st} id={id} act={act} />
           <h3>Priority and scope</h3>
           <Field label="Priority">
             {level < 0 ? (
@@ -244,7 +282,6 @@ export function TaskPanel({ st, a, id, act, readTodos, previewing }: PanelProps)
   );
 }
 
-/** The effect figures come with the rest of the signals. */
 export function ExternalPanel({ st, a, id, act, previewing }: Omit<PanelProps, 'readTodos'>) {
   const it = st.items[id];
   const b = a.by[id];
@@ -267,6 +304,8 @@ export function ExternalPanel({ st, a, id, act, previewing }: Omit<PanelProps, '
       <Field label="End">
         <DateField label="End" value={it.pinE} onCommit={d => d != null && act.apply(setPin(id, 'end', d))} />
       </Field>
+      <h3>Effect</h3>
+      <ExternalEffect st={st} a={a} id={id} act={act} previewing={previewing} />
       <h3>Blocks</h3>
       <Blocks st={st} a={a} id={id} act={act} previewing={previewing} />
       <h3>Linked notes</h3>

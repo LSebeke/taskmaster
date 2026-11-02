@@ -4,11 +4,17 @@ import { FakeObsidian } from './store/fake-obsidian';
 vi.mock('obsidian', () => ({
   ItemView: class {},
   FuzzySuggestModal: class {},
+  Modal: class {},
+  Notice: class {},
+  PluginSettingTab: class {},
+  Setting: class {},
   Scope: class {},
   Plugin: class {
     unloaders: (() => void)[] = [];
     views: string[] = [];
     commands: { id: string; callback(): void }[] = [];
+    settingTabs: unknown[] = [];
+    statusItems: { textContent: string }[] = [];
     constructor(public app: unknown) {}
     register(cb: () => void) {
       this.unloaders.push(cb);
@@ -18,6 +24,14 @@ vi.mock('obsidian', () => ({
     }
     addCommand(c: { id: string; callback(): void }) {
       this.commands.push(c);
+    }
+    addSettingTab(t: unknown) {
+      this.settingTabs.push(t);
+    }
+    addStatusBarItem() {
+      const item = { textContent: '' };
+      this.statusItems.push(item);
+      return item;
     }
   },
 }));
@@ -63,12 +77,24 @@ describe('plugin load', () => {
     expect(plugin.store).toBeUndefined();
   });
 
-  it('registers the view and an open command during onload', async () => {
+  it('registers the view, the commands and the settings tab during onload', async () => {
     const { plugin } = setup();
     await plugin.onload();
-    const p = plugin as unknown as { views: string[]; commands: { id: string }[] };
+    const p = plugin as unknown as { views: string[]; commands: { id: string }[]; settingTabs: unknown[] };
     expect(p.views).toEqual(['taskmaster']);
-    expect(p.commands.map(c => c.id)).toEqual(['open']);
+    expect(p.commands.map(c => c.id)).toEqual(['open', 'new-project', 'new-task', 'toggle-timer', 'log-hours']);
+    expect(p.settingTabs).toHaveLength(1);
+  });
+
+  it('shows a timer started before the view opens, in the status bar, surviving a reload', async () => {
+    const { o, plugin, ready } = setup();
+    o.add('Projects/a.md', { 'tm-type': 'item', 'tm-left': 6 });
+    o.stateJson = JSON.stringify({ timer: { id: 'Projects/a.md', since: '2026-11-02T09:00:00.000Z' } });
+    await plugin.onload();
+    ready();
+    const items = (plugin as unknown as { statusItems: { textContent: string }[] }).statusItems;
+    await vi.waitFor(() => expect(items[0]?.textContent).toMatch(/^⏱ a \d+:\d\d$/));
+    (plugin as unknown as { unloaders: (() => void)[] }).unloaders.forEach(u => u());
   });
 
   it('opens one tab, and reuses it afterwards', async () => {

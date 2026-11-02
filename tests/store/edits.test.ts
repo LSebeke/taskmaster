@@ -273,6 +273,8 @@ describe('state.json', () => {
       plan: { [p('a')]: { start: '2026-11-02', end: '2026-11-03', hours: 12 } },
       planHistory: [],
       capacity: 40,
+      staleDays: 7,
+      projectsFolder: 'Projects/',
       weekCapacity: { [isoWeekKey(week)]: 50 },
       holidays: ['2026-12-24'],
     });

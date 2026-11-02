@@ -60,6 +60,13 @@ export interface Settings {
   holidays: Day[];
 }
 
+/** The one running timer. */
+export interface RunningTimer {
+  id: string;
+  /** Epoch milliseconds. */
+  since: number;
+}
+
 export interface State {
   items: Record<string, Item>;
   plan: Partial<Record<string, PlanEntry>>;
@@ -72,6 +79,9 @@ export interface State {
   seq?: number;
   /** Sibling order set by hand. Whatever is not listed follows, by path. */
   order?: string[];
+  timer?: RunningTimer;
+  /** Where item notes live, with trailing slash. Empty: the whole vault. The engine never reads it. */
+  folder?: string;
 }
 
 /** Children per item. Top-level items sit under ''. */

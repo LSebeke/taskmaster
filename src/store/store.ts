@@ -1,9 +1,10 @@
 import type { EventRef } from 'obsidian';
 import { dayOf, ensureTiers, type Day, type Item, type NewItem, type State, type Todo } from '../engine';
-import { awaitsStart, recordDates, type Edit } from './edits';
+import { awaitsStart, recordDates, setFolder, startTimer, stopTimer, timerHours, type Edit } from './edits';
 import { notePatches } from './patch';
 import { movedPath, type StoreApp, type StoreWarning } from './ports';
 import { inOrder, projectNotes } from './project';
+import { fixLinks, staleLinks, type LinkFix } from './relink';
 import { defaultStateFile, parseStateFile, serializeState, STATE_BAD, STATE_PATH, STATE_TMP, writeStateAtomically } from './state-file';
 import { Structure, type Done } from './structure';
 import { addToText, parseTodos, removeFromText, tickInText } from './todos';
@@ -28,6 +29,8 @@ export interface StoreOptions {
   /** Window collecting writes to one file, and to state.json. */
   writeMs?: number;
   today?: () => Day;
+  /** Wall clock, for the timer. */
+  now?: () => number;
 }
 
 /** `label` names the local edit behind the change. Absent: the notes changed on their own. */
@@ -62,14 +65,18 @@ interface StateParts {
   weekly: number;
   weekCap: State['settings']['weekCap'];
   holidays: Day[];
+  staleDays: number;
+  timer: State['timer'];
+  folder: State['folder'];
 }
 
-const partsOf = ({ tiers, plan, planHistory, order, settings: { weekly, weekCap, holidays } }: State): StateParts =>
-  structuredClone({ tiers, plan, planHistory, order, weekly, weekCap, holidays });
+const partsOf = ({ tiers, plan, planHistory, order, timer, folder, settings: { weekly, weekCap, holidays, staleDays } }: State): StateParts =>
+  structuredClone({ tiers, plan, planHistory, order, timer, folder, weekly, weekCap, holidays, staleDays });
 
 function assignParts(st: State, p: Partial<StateParts>) {
-  const { weekly, weekCap, holidays, ...rest } = p;
+  const { weekly, weekCap, holidays, staleDays, ...rest } = p;
   Object.assign(st, rest);
+  if ('staleDays' in p) st.settings.staleDays = staleDays!;
   if ('weekly' in p) st.settings.weekly = weekly!;
   if ('weekCap' in p) st.settings.weekCap = weekCap;
   if ('holidays' in p) st.settings.holidays = holidays!;
@@ -83,12 +90,13 @@ function changedParts(before: StateParts, after: StateParts): Partial<StateParts
 }
 
 /** Plan entries, history and levels are keyed by note path. A folder rename moves everything under it. */
-function rewritePaths(p: Pick<Partial<StateParts>, 'tiers' | 'plan' | 'planHistory' | 'order'>, from: string, to: string) {
+function rewritePaths(p: Pick<Partial<StateParts>, 'tiers' | 'plan' | 'planHistory' | 'order' | 'timer'>, from: string, to: string) {
   const move = (x: string) => movedPath(x, from, to);
   const moveKeys = <T>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [move(k), v]));
   if (p.tiers) p.tiers = p.tiers.map(level => level.map(move));
   if (p.plan) p.plan = moveKeys(p.plan);
   if (p.order) p.order = p.order.map(move);
+  if (p.timer) p.timer = { ...p.timer, id: move(p.timer.id) };
   for (const h of p.planHistory ?? []) {
     h.ids = h.ids.map(move);
     h.before = moveKeys(h.before);
@@ -123,14 +131,14 @@ export class TaskmasterStore {
   private st: State;
   private noteWarnings: StoreWarning[] = [];
   private fileWarnings: StoreWarning[] = [];
-  private folder: string;
   private debounceMs: number;
   private writeMs: number;
   private today: () => Day;
+  private now: () => number;
   private writes: NoteWriter;
   private listeners = new Set<StoreListener>();
   private unhook: (() => void)[] = [];
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private waitTimer: ReturnType<typeof setTimeout> | null = null;
   private stateTimer: ReturnType<typeof setTimeout> | null = null;
   private stateBusy: Promise<void> = Promise.resolve();
   private clock: ReturnType<typeof setInterval> | null = null;
@@ -155,25 +163,30 @@ export class TaskmasterStore {
   /** To-dos as edited, until the cache has them. Its list items lag the note. */
   private todoOverlay = new Map<string, Todo[]>();
   private disposed = false;
+  /** Links that may still name a path their note has left. */
+  private fixes: LinkFix[] = [];
+  private fixTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private app: StoreApp,
     opts: StoreOptions = {},
   ) {
-    this.folder = folderPrefix(opts.projectsFolder ?? 'Projects/');
     this.debounceMs = opts.debounceMs ?? 100;
     this.writeMs = opts.writeMs ?? 300;
     this.today = opts.today ?? localToday;
+    this.now = opts.now ?? Date.now;
     this.writes = new NoteWriter(app, this.writeMs, (path, e) => this.writeFailed(path, e), path => this.todosSettled(path));
     const { weekly, weekCap, holidays, ...rest } = defaultStateFile();
-    this.st = { ...rest, items: {}, today: 0, settings: { weekly, weekCap, holidays, staleDays: opts.staleDays ?? 7 } };
+    this.st = { ...rest, folder: folderPrefix(opts.projectsFolder ?? 'Projects/'), items: {}, today: 0, settings: { weekly, weekCap, holidays, staleDays: opts.staleDays ?? 7 } };
     const store = this;
     this.structure = new Structure({
       app,
       get state() {
         return store.st;
       },
-      root: this.folder.replace(/\/$/, ''),
+      get root() {
+        return store.folder.replace(/\/$/, '');
+      },
       serial: fn => this.serial(fn),
       atomic: (label, fn) => this.atomic(label, fn),
       apply: edit => this.apply(edit),
@@ -198,6 +211,67 @@ export class TaskmasterStore {
   /** Label of the edit Undo would revert, or null. */
   get undoLabel(): string | null {
     return this.stack.at(-1)?.label ?? null;
+  }
+
+  private get folder(): string {
+    return this.st.folder ?? '';
+  }
+
+  /** The clock timers run on. */
+  time(): number {
+    return this.now();
+  }
+
+  /** Where item notes live, with trailing slash. */
+  get projectsFolder(): string {
+    return this.folder;
+  }
+
+  /** Items are read from here from now on. Notes stay where they are. Returns why not, or null. */
+  setProjectsFolder(path: string): string | null {
+    const folder = folderPrefix(path);
+    const dir = folder.replace(/\/$/, '');
+    if (dir && !this.app.vault.getFolderByPath(dir)) return `There is no folder ${dir}`;
+    this.apply(setFolder(folder));
+    return null;
+  }
+
+  /** The running timer. A timer on a note that went away counts as none. */
+  get timer(): State['timer'] | null {
+    const t = this.st.timer;
+    return t && this.st.items[t.id] ? t : null;
+  }
+
+  /** On a task with hours left, with no timer running. Returns whether it started. */
+  startTimer(id: string): boolean {
+    if (this.st.timer && !this.timer) delete this.st.timer;
+    return this.apply(startTimer(id, this.now()));
+  }
+
+  /** Logs the time run. `level` is the priority level the task was in, as a log can finish it. Null with nothing running. */
+  stopTimer(): { id: string; hours: number; level: number } | null {
+    const t = this.st.timer;
+    if (!t) return null;
+    const running = this.timer;
+    const now = this.now();
+    const level = this.st.tiers.findIndex(x => x.includes(t.id));
+    const hours = timerHours(this.st, now);
+    this.apply(stopTimer(now));
+    return running ? { id: running.id, hours, level } : null;
+  }
+
+  /** Notes linking to an item that are not its children, its dependents or its own tm-notes. */
+  backlinks(id: string): string[] {
+    const it = this.st.items[id];
+    if (!it) return [];
+    const structure = (source: string) => {
+      const s = this.st.items[source];
+      return !!s && (s.parent === id || !!s.deps?.includes(id));
+    };
+    return Object.entries(this.app.metadataCache.resolvedLinks)
+      .filter(([source, to]) => to[id] && source !== id && !it.notes?.includes(source) && !structure(source))
+      .map(([source]) => source)
+      .sort();
   }
 
   /** Adds an item: its note, and a move of the parent's note if this is its first child. */
@@ -244,9 +318,9 @@ export class TaskmasterStore {
       const { file, warnings, broken } = parseStateFile(raw);
       this.fileWarnings.push(...warnings);
       if (broken) await this.app.vault.adapter.write(STATE_BAD, raw).catch(() => undefined);
-      const { weekly, weekCap, holidays, ...rest } = file;
+      const { weekly, weekCap, holidays, staleDays, ...rest } = file;
       Object.assign(this.st, rest);
-      Object.assign(this.st.settings, { weekly, weekCap, holidays });
+      Object.assign(this.st.settings, { weekly, weekCap, holidays, staleDays: staleDays ?? this.st.settings.staleDays });
     }
     this.hookEvents();
     this.clock = setInterval(() => {
@@ -347,6 +421,7 @@ export class TaskmasterStore {
 
   /** Writes everything waiting, now. */
   async flush(): Promise<void> {
+    this.repairLinks();
     const state = this.stateTimer != null ? this.writeState() : Promise.resolve();
     await Promise.all([this.writes.flush(), state, this.stateBusy]);
   }
@@ -361,10 +436,11 @@ export class TaskmasterStore {
   dispose(): void {
     void this.flush();
     this.disposed = true;
-    if (this.timer !== null) clearTimeout(this.timer);
+    if (this.waitTimer !== null) clearTimeout(this.waitTimer);
     if (this.datesTimer !== null) clearTimeout(this.datesTimer);
+    if (this.fixTimer !== null) clearTimeout(this.fixTimer);
     if (this.clock !== null) clearInterval(this.clock);
-    this.timer = null;
+    this.waitTimer = null;
     this.unhook.forEach(off => off());
     this.unhook = [];
     this.listeners.clear();
@@ -549,8 +625,9 @@ export class TaskmasterStore {
       vault,
       vault.on('rename', (file, oldPath) => {
         // At once, not at the recompute: a second rename may follow within the window.
-        const keyed = () => JSON.stringify([this.st.tiers, this.st.plan, this.st.planHistory]);
+        const keyed = () => JSON.stringify([this.st.tiers, this.st.plan, this.st.planHistory, this.st.timer]);
         const before = keyed();
+        this.queueLinkFixes(oldPath, file.path);
         rewritePaths(this.st, oldPath, file.path);
         const items = rekeyItems(this.st, oldPath, file.path);
         this.writes.rename(oldPath, file.path);
@@ -566,10 +643,26 @@ export class TaskmasterStore {
     );
   }
 
+  /** Obsidian's own link update may be on, off or still running, so the check waits a write window. */
+  private queueLinkFixes(from: string, to: string) {
+    const move = (x: string) => movedPath(x, from, to);
+    this.fixes = [...this.fixes.map(f => ({ ...f, ref: move(f.ref), to: move(f.to) })), ...staleLinks(this.st, from, to)];
+    if (this.fixes.length) this.fixTimer ??= setTimeout(() => this.repairLinks(), this.writeMs);
+  }
+
+  /** Not an edit: this keeps the notes saying what they already meant. Goes through the writer, in order with everything else. */
+  private repairLinks() {
+    if (this.fixTimer !== null) clearTimeout(this.fixTimer);
+    this.fixTimer = null;
+    const fixes = this.fixes;
+    this.fixes = [];
+    for (const [path, patch] of fixLinks(this.app, fixes, path => this.frontmatterOf(path))) this.writes.put(path, patch);
+  }
+
   /** The window opens on the first event and does not extend, so a steady stream cannot starve the view. */
   private schedule() {
-    this.timer ??= setTimeout(() => {
-      this.timer = null;
+    this.waitTimer ??= setTimeout(() => {
+      this.waitTimer = null;
       this.recompute();
     }, this.debounceMs);
   }
@@ -595,8 +688,8 @@ export class TaskmasterStore {
   private publish(label?: string) {
     if (this.hush) return;
     this.recordDatesSoon();
-    const { items, tiers, plan, planHistory, order, today, settings } = this.st;
-    const now = JSON.stringify([items, tiers, plan, planHistory, order, today, settings, this.warnings]);
+    const { items, tiers, plan, planHistory, order, today, settings, timer, folder } = this.st;
+    const now = JSON.stringify([items, tiers, plan, planHistory, order, today, settings, timer, folder, this.warnings]);
     if (now === this.seen) return;
     this.seen = now;
     for (const l of this.listeners) l(this.st, label);

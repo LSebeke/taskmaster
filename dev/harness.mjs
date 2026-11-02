@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { chromium } from 'playwright-core';
+import { signalChecks } from './harness-signals.mjs';
 import { structureChecks } from './harness-structure.mjs';
 
 const dev = dirname(fileURLToPath(import.meta.url));
@@ -966,6 +967,7 @@ for (const theme of ['light', 'dark']) {
 }
 
 await structureChecks({ open, shoot, check, rowByTitle, railTitle, status, settle });
+await signalChecks({ open, shoot, check, rowByTitle, railTitle, status, settle, barPoint });
 
 await check('empty vault', async () => {
   const page = await open('theme=light&empty=1');

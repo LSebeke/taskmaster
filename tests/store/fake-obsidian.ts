@@ -181,7 +181,7 @@ export class FakeObsidian {
         const links = this.linksTo(file.path);
         if (this.notes.has(file.path)) this.rename(file.path, newPath);
         else this.renameFolder(file.path, newPath);
-        this.rewriteLinks(links, file.path, newPath);
+        if (this.linkUpdates) this.rewriteLinks(links, file.path, newPath);
       },
       trashFile: async (file: FakeFile) => {
         this.trashed.push(file.path);
@@ -192,6 +192,7 @@ export class FakeObsidian {
       getNewFileParent: () => this.folder(this.newNotesFolder) ?? { path: '/', name: '', children: [] },
     },
     metadataCache: {
+      resolvedLinks: new Proxy({}, { ownKeys: () => this.linkSources(), get: (_, k) => this.linksFrom(String(k)), getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }) }),
       getFileCache: (file: FakeFile) => this.notes.get(file.path)?.cache ?? null,
       getFirstLinkpathDest: (linkpath: string) => this.resolve(linkpath),
       fileToLinktext: (file: FakeFile) => {
@@ -215,6 +216,23 @@ export class FakeObsidian {
 
   /** Folder new notes go in, per the user's setting. */
   newNotesFolder = '';
+
+  /** The user's "Automatically update internal links". */
+  linkUpdates = true;
+
+  private linkSources = () => [...this.notes.keys()];
+
+  /** What `metadataCache.resolvedLinks` holds for a source: destinations and counts, from the note as indexed. */
+  private linksFrom(source: string) {
+    const n = this.notes.get(source);
+    const out: Record<string, number> = {};
+    const text = JSON.stringify(n?.cache?.frontmatter ?? {}) + (n?.body ?? '');
+    for (const m of text.matchAll(/\[\[([^\]|#]+)/g)) {
+      const to = this.resolve(m[1])?.path;
+      if (to) out[to] = (out[to] ?? 0) + 1;
+    }
+    return out;
+  }
 
   private folder(path: string) {
     if (!this.folders.has(path)) return null;
