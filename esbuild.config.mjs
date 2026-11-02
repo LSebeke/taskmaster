@@ -1,5 +1,7 @@
 import { build } from 'esbuild';
 
+const dev = process.argv.includes('--dev');
+
 await build({
   entryPoints: ['src/main.ts'],
   bundle: true,
@@ -10,6 +12,7 @@ await build({
   platform: 'browser',
   target: 'es2022',
   external: ['obsidian', 'electron', '@codemirror/*', '@lezer/*'],
-  sourcemap: 'inline',
+  sourcemap: dev ? 'inline' : false,
+  minify: !dev,
   logLevel: 'info',
 });
