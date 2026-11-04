@@ -132,6 +132,9 @@ async function launch() {
   const trust = page.getByRole('button', { name: 'Trust author and enable plugins' });
   if (await trust.isVisible()) {
     await trust.click();
+    // The click returns before the button's setEnable has loaded the plugins. Starting another load
+    // meanwhile loads one twice on Obsidian 1.15, so wait it out.
+    await page.waitForFunction(() => app.plugins.isEnabled() && app.plugins.loadingPluginId == null && !!app.plugins.plugins.taskmaster, null, { timeout: 15_000 });
     await page.keyboard.press('Escape');
   }
 }
@@ -273,8 +276,8 @@ const step = (name, fn) => steps.push({ name, fn });
 
 step('load: plugin enables, no warnings, rows show', async () => {
   await page.evaluate(async () => {
-    await app.plugins.setEnable(true);
-    // Obsidian 1.15 already loads the listed plugins on setEnable, and loads one twice if asked again.
+    // Only what is not on yet: Obsidian 1.15 loads a plugin a second time if asked again.
+    if (!app.plugins.isEnabled()) await app.plugins.setEnable(true);
     if (!app.plugins.plugins.taskmaster) await app.plugins.enablePlugin('taskmaster');
   });
   assert(await page.evaluate(() => !!app.plugins.plugins.taskmaster));
