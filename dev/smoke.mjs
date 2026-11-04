@@ -1,7 +1,7 @@
 /**
  * `npm run smoke`: the built plugin in the real Obsidian, on a throwaway vault and config under the OS
  * temp dir. Drives it over CDP, checks notes on disk, and fails on any page error. Screenshots, dark and
- * light: dev/.out/smoke (or SMOKE_SHOTS). Set SMOKE_KEEP=1 to keep the temp dir.
+ * light: dev/.out/smoke (or SMOKE_SHOTS). Set SMOKE_KEEP=1 to keep the temp dir, OBSIDIAN to use another binary.
  * It never reads or writes ~/.config/obsidian, and only ever signals the process group it started.
  */
 import assert from 'node:assert/strict';
@@ -16,7 +16,7 @@ import { smokeSteps } from './smoke-steps.mjs';
 
 const dev = dirname(fileURLToPath(import.meta.url));
 const repo = dirname(dev);
-const OBSIDIAN = '/usr/bin/obsidian';
+const OBSIDIAN = process.env.OBSIDIAN ?? '/usr/bin/obsidian';
 const shots = resolve(process.env.SMOKE_SHOTS ?? join(dev, '.out/smoke'));
 const VIEWPORT = { width: 1600, height: 900 };
 /** Longer than the plugin's write and debounce windows together. */

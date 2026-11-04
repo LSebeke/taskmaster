@@ -1,0 +1,76 @@
+name: Release
+
+# Push a tag equal to the manifest version (Obsidian wants a bare "1.0.0", no "v"):
+#   git tag 1.0.0 && git push origin 1.0.0
+# This builds from that commit, signs where the files came from, and opens a DRAFT release. Users see
+# nothing until you read the draft and press Publish.
+on:
+  push:
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # the draft release
+      id-token: write # signing the provenance
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+      - name: Tag matches manifest and package
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          node -e '
+            const t = process.env.TAG, m = require("./manifest.json").version, p = require("./package.json").version;
+            if (t !== m || t !== p) { console.error(`tag ${t}, manifest ${m}, package ${p}: all three must agree`); process.exit(1); }
+          '
+      # Install scripts stay off (.npmrc). The same gates as CI, on exactly the commit released.
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
+      - run: npm audit signatures
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Checksums
+        run: sha256sum main.js manifest.json styles.css | tee SHA256SUMS
+      # Signed record that these exact files came from this workflow and commit. GitHub supports it
+      # only on public repos (or Enterprise), so a private repo skips it and the draft says so.
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        if: ${{ !github.event.repository.private }}
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          {
+            echo '### Verify'
+            echo
+            echo 'SHA-256:'
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+            if [ "$PRIVATE" = "true" ]; then
+              echo
+              echo '_No provenance attestation: the repo was private when this was built._'
+            else
+              echo
+              echo "Provenance: \`gh attestation verify main.js --repo $GITHUB_REPOSITORY\`"
+            fi
+          } > notes.md
+          gh release create "$TAG" --draft --title "$TAG" --notes-file notes.md --generate-notes \
+            main.js manifest.json styles.css SHA256SUMS

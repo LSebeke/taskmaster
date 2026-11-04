@@ -26,7 +26,7 @@ await build({
   logLevel: 'warning',
 });
 
-const browser = await chromium.launch({ executablePath: '/usr/bin/chromium' });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? '/usr/bin/chromium' });
 const problems = [];
 
 async function open(query = 'theme=light', colorScheme = 'light', size = viewport) {

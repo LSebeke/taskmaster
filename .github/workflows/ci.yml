@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch or PR cancels the run still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 26
+
+jobs:
+  check:
+    name: Typecheck, test, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Versions agree
+        run: |
+          node -e '
+            const m = require("./manifest.json"), p = require("./package.json");
+            if (m.version !== p.version) { console.error(`manifest ${m.version} != package ${p.version}`); process.exit(1); }
+          '
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plugin
+          path: |
+            main.js
+            manifest.json
+            styles.css
+
+  perf:
+    name: Perf budgets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      # Shared runners are slower and noisier than a desktop: --ci judges at budget x CI_MARGIN.
+      - run: npm run perf -- --ci
+        env:
+          CHROMIUM: /usr/bin/google-chrome
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: perf
+          path: dev/.out/perf.json
+          if-no-files-found: ignore
+
+  smoke:
+    name: Smoke, Obsidian ${{ matrix.obsidian }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # The version in daily use, and the newest release. sha256 from the release page: a tampered
+        # download fails before it is installed.
+        include:
+          - obsidian: '1.13.7'
+            sha256: 17dc33b49cb3e785ecc27edd2ea0c79e40207798b554fd2886e36ebee7af9ae0
+          - obsidian: '1.15.0'
+            sha256: 251805fdcb696af32129e8f5e8656f6688802fc38b169822175d23a74c5174b3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: obsidian
+        with:
+          path: obsidian.deb
+          key: obsidian-deb-${{ matrix.obsidian }}
+      - name: Download Obsidian
+        if: steps.obsidian.outputs.cache-hit != 'true'
+        run: curl -fsSL -o obsidian.deb "https://github.com/obsidianmd/obsidian-releases/releases/download/v${{ matrix.obsidian }}/obsidian_${{ matrix.obsidian }}_amd64.deb"
+      - name: Install Obsidian
+        run: |
+          echo "${{ matrix.sha256 }}  obsidian.deb" | sha256sum -c -
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ./obsidian.deb
+      - run: npm run smoke
+        env:
+          OBSIDIAN: /usr/bin/obsidian
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: smoke-shots-${{ matrix.obsidian }}
+          path: dev/.out/smoke
+          if-no-files-found: ignore

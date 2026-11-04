@@ -1,10 +1,10 @@
 /**
  * `npm run perf`: every budget in the spec's Performance table, in Node and in headless Chromium through
  * the harness. Judged at the spec's own numbers on p95, or with the CI margin under `--ci`. Exits 1 when
- * anything is over. Raw samples: dev/.out/perf.json.
+ * anything is over. Raw samples: dev/.out/perf.json. CHROMIUM picks the browser binary.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -45,7 +45,7 @@ report('node', 'onload', node.onload, SPEC.onload);
 for (const r of node.recalc) report('node', r.name, r.samples, r.budget);
 for (const r of node.signals) report('node', `${r.name} (no budget)`, r.samples);
 
-const browser = await chromium.launch({ executablePath: '/usr/bin/chromium' });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? '/usr/bin/chromium' });
 const url = seed => `${pathToFileURL(join(dev, 'harness.html'))}?theme=light&perf=${encodeURIComponent(JSON.stringify(seed))}`;
 const problems = [];
 
@@ -227,6 +227,12 @@ for (const r of rows) {
 for (const [name, samples] of Object.entries(raw)) if (samples.length <= 40) console.log(`raw ${name}: ${samples.join(' ')}`);
 writeFileSync(join(out, 'perf.json'), JSON.stringify({ rows, raw }, null, 1));
 console.log(`raw samples: ${join(out, 'perf.json')}`);
+// On GitHub Actions, the same table on the run's summary page.
+if (process.env.GITHUB_STEP_SUMMARY) {
+  const md = rows.map(r => `| ${r.where} ${r.name} | ${r.budget == null ? '-' : f(r.budget)} | ${f(r.median)} | ${f(r.p95)} | ${f(r.max)} | ${r.unit} | ${verdict(r)} |`);
+  const head = `### Perf${margin !== 1 ? ` (budget x ${margin})` : ''}\n\n| measure | budget | median | p95 | max | unit | |\n|---|--:|--:|--:|--:|---|---|\n`;
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${head}${md.join('\n')}\n`);
+}
 for (const p of problems) console.error(`problem: ${p}`);
 const over = rows.filter(r => verdict(r) === 'OVER');
 if (over.length || problems.length) {
