@@ -1,0 +1,9 @@
+{
+  "id": "taskmaster",
+  "name": "Taskmaster",
+  "version": "1.0.0",
+  "minAppVersion": "1.7.2",
+  "description": "Gantt-first project management: tracks hours against plan, forecasts finish dates from real capacity, finds the critical chain.",
+  "author": "Lukas Sebeke",
+  "isDesktopOnly": true
+}

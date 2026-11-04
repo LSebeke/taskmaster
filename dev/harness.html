@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Taskmaster harness</title>
+<style>
+/* Obsidian's default theme, as far as the view can see it. The accent is the real calc() form on purpose. */
+body.theme-light{--accent-h:258;--accent-s:88%;--accent-l:66%;
+  --background-primary:#fff;--background-secondary:#f6f6f6;--background-modifier-border:#e0e0e0;--background-modifier-border-hover:#d4d4d4;--background-modifier-hover:rgba(0,0,0,.067);
+  --text-normal:#222;--text-muted:#5c5c5c;--text-faint:#ababab;--text-on-accent:#fff;--text-accent:hsl(var(--accent-h),var(--accent-s),var(--accent-l));
+  --interactive-accent:hsl(calc(var(--accent-h) - 3),calc(var(--accent-s) * 1.02),calc(var(--accent-l) - 2.5%))}
+body.theme-dark{--accent-h:258;--accent-s:88%;--accent-l:66%;
+  --background-primary:#1e1e1e;--background-secondary:#262626;--background-modifier-border:#363636;--background-modifier-border-hover:#3f3f3f;--background-modifier-hover:rgba(255,255,255,.075);
+  --text-normal:#dadada;--text-muted:#b3b3b3;--text-faint:#666;--text-on-accent:#fff;--text-accent:hsl(var(--accent-h),var(--accent-s),var(--accent-l));
+  --interactive-accent:hsl(calc(var(--accent-h) - 3),calc(var(--accent-s) * 1.02),calc(var(--accent-l) + 2.5%))}
+html,body{height:100%;margin:0}
+body{--font-interface:system-ui,sans-serif;--input-height:30px;font-family:var(--font-interface);font-size:13px;background:var(--background-primary);color:var(--text-normal);overflow:hidden}
+/* Obsidian's default button, which the plugin's styles must beat. */
+button:not(.clickable-icon){height:var(--input-height);padding:4px 12px;box-shadow:0 1px 2px rgba(0,0,0,.2);border:0;background:var(--background-secondary);color:var(--text-normal);font-size:14px}
+.status-bar{position:fixed;right:0;bottom:0;z-index:30;padding:4px 10px;font-size:11px;background:var(--background-secondary);border-top-left-radius:6px}
+.workspace-leaf-content{display:flex;flex-direction:column;height:100%}
+.view-content{flex:1;min-height:0;padding:16px;overflow:auto}
+</style>
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+<div class="status-bar">⟳ Obsidian's floating status bar</div>
+<script src=".out/harness.js"></script>
+</body>
+</html>

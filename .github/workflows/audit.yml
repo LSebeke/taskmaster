@@ -1,0 +1,43 @@
+name: Audit
+
+# Checks the dependencies for known vulnerabilities and for packages that did not come from the
+# registry unchanged. Weekly too: a new advisory can hit packages that have not changed here.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: npm audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+      # Install scripts stay off (.npmrc), so nothing here runs package code.
+      - run: npm ci
+      - name: Known vulnerabilities
+        run: npm audit --audit-level=moderate
+      - name: Registry signatures and provenance
+        run: npm audit signatures
+      - name: No new install scripts
+        run: |
+          node -e '
+            const allowed = new Set(["node_modules/esbuild", "node_modules/fsevents"]);
+            const found = Object.entries(require("./package-lock.json").packages)
+              .filter(([k, v]) => v.hasInstallScript && !allowed.has(k)).map(([k]) => k);
+            if (found.length) { console.error("New packages with install scripts:\n" + found.join("\n")); process.exit(1); }
+          '
