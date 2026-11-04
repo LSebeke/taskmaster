@@ -82,6 +82,9 @@ async function fresh(seed) {
   const paint = [];
   const sync = [];
   const load = [];
+  // One open first, not counted: the browser's own start (process, fonts, JIT) lands on it. In Obsidian
+  // that is long over before the plugin opens its view.
+  await (await fresh(OPEN_SEED)).close();
   for (let i = 0; i < OPEN_SAMPLES; i++) {
     const page = await fresh(OPEN_SEED);
     const r = await page.evaluate(() => ({ paintMs: window.tm.paintMs, openMs: window.tm.openMs, loadMs: window.tm.loadMs, items: Object.keys(window.tm.store.state.items).length }));

@@ -274,7 +274,8 @@ const step = (name, fn) => steps.push({ name, fn });
 step('load: plugin enables, no warnings, rows show', async () => {
   await page.evaluate(async () => {
     await app.plugins.setEnable(true);
-    await app.plugins.enablePlugin('taskmaster');
+    // Obsidian 1.15 already loads the listed plugins on setEnable, and loads one twice if asked again.
+    if (!app.plugins.plugins.taskmaster) await app.plugins.enablePlugin('taskmaster');
   });
   assert(await page.evaluate(() => !!app.plugins.plugins.taskmaster));
   assert((await page.evaluate(() => Object.keys(app.commands.commands).filter(c => c.startsWith('taskmaster:')))).length > 3);
